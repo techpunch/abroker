@@ -1,7 +1,4 @@
-```clj
-(defmethod what-is :abroker [_]
-  "Abstract Broker")
-```
+# aboker: Abstract Broker
 
 ![](https://img.shields.io/github/v/tag/techpunch/abroker)
 
@@ -50,7 +47,7 @@ abroker's deps.edn should now be satisfied. In your project's deps.edn :deps map
 ```edn
 techpunch/abroker {:git/url "https://github.com/techpunch/abroker.git"
                    :git/tag  "v0.0.1"
-                   :git/sha  "(latest commit)"}
+                   :git/sha  "8c1c014"}
 ```
 Or clone the project locally and use:
 ```edn
