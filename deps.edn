@@ -1,0 +1,21 @@
+{:paths ["src" "resources" "test-utils"]
+
+ :deps
+ {org.clojure/clojure {:mvn/version "1.12.2"}
+  org.clojure/tools.logging {:mvn/version "1.2.4"}
+  org.clojure/core.async {:mvn/version "1.8.741"}
+  clojure.java-time/clojure.java-time {:mvn/version "1.4.3"}
+  io.replikativ/konserve {:mvn/version "0.8.322"}
+  com.ib/twsapi {:mvn/version "10.37.02"}
+  com.google.protobuf/protobuf-java {:mvn/version "4.29.3"}
+  techpunch/clj {:local/root "../techpunch-clj"}
+  }
+
+ :aliases
+ {:build {:deps {io.github.clojure/tools.build {:git/tag "v0.10.5" :git/sha "2a21b7a"}}
+          :ns-default build}
+
+  :test {:extra-paths ["test"]
+         :extra-deps {io.github.cognitect-labs/test-runner {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+         :main-opts ["-m" "cognitect.test-runner"]
+         :exec-fn cognitect.test-runner.api/test}}}

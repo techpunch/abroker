@@ -1,0 +1,27 @@
+; This is a sample config file. For local development, copy it to config.edn (already in
+; .gitignore) in the resources folder, and make it your own.
+{:broker-config
+ {:brokers {:ibkr {:name "Live"
+                   :account "F12345679"
+                   :host "localhost"
+                   :port 7496}
+            :alpaca {:name "Paper"
+                     :acct "XYZ123"}}
+
+  :risk-mgmt {:max-order-amt 200000}
+
+  ; trade allocations can be either accounts or groups, which works with ibkr
+  ; allocation groups for hitting multiple accts, and in the future we'll want
+  ; to mimick them in software where native broker support doesn't exist
+  :allocations {:bob-tax
+                {:account "U00001"}
+
+                :bob-ira
+                {:account "U00002"}
+
+                :alice-tax
+                {:account "U00003"}
+
+                :bob-alice-tax
+                {:alloc-group "BobAlice"
+                 :min-lot-size 20}}}}

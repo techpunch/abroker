@@ -1,0 +1,10 @@
+/target
+/.cpcache
+/.nrepl-port
+/.prepl-port
+/.vscode
+/.calva
+/.clj-kondo
+/.lsp
+/resources/config.edn
+/src-dustbin
