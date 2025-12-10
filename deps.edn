@@ -8,8 +8,9 @@
   io.replikativ/konserve {:mvn/version "0.8.322"}
   com.ib/twsapi {:mvn/version "10.37.02"}
   com.google.protobuf/protobuf-java {:mvn/version "4.29.3"}
-  techpunch/clj {:local/root "../techpunch-clj"}
-  }
+  techpunch/techpunch-clj {:git/url "https://github.com/techpunch/techpunch-clj.git"
+                           :git/tag "v0.0.1"
+                           :git/sha "fe8dfd8"}}
 
  :aliases
  {:build {:deps {io.github.clojure/tools.build {:git/tag "v0.10.5" :git/sha "2a21b7a"}}
