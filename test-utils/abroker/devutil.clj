@@ -35,8 +35,10 @@
     (println (str "\nTotal: " (count values) " values\n"))))
 
 (comment
-  ;; Dump  TWS enums
+  ;; Dump TWS enums
+  (dump-enum-with-api-string "com.ib.client.OrderType")
+  (dump-enum-with-api-string "com.ib.client.Types$TimeInForce")
   (dump-enum-with-api-string "com.ib.client.Types$BarSize")
   (dump-enum-with-api-string "com.ib.client.Types$SecType")
   (dump-enum-with-api-string "com.ib.client.Types$Right")
-  (dump-enum-with-api-string "com.ib.client.Types$TimeInForce"))
+  )

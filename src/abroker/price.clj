@@ -27,7 +27,7 @@
 
 (defn vol
   "Converts x into a volume of type long. If split is provided, x will be
- adjusted by multiplying by number split."
+  adjusted by multiplying by number split."
   ([x]
    (as-long x))
   ([x split]
