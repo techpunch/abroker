@@ -334,7 +334,7 @@
   (let [req-id (next-req-id)]
     (.reqHistoricalData (client) req-id
                         (ibdata/contract (d/resolve-instrument instrument))
-                        "" ; TODO impl end time if needed
+                        "" ; TODO impl end time if we find a need
                         duration (ibdata/bar-size bar-size)
                         "TRADES" (if rth-only? 1 0)
                         1 ; https://www.interactivebrokers.com/campus/ibkr-api-page/twsapi-doc/#hist-format-date
