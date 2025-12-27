@@ -355,7 +355,8 @@
 
 ;; ACCOUNT & POSITIONS
 
-(def position-ctx (atom nil))
+(def position-ctx
+  (ctx/ctx-atom #(assoc % :positions [])))
 
 (defmethod handle-event :position [{:keys [account contract pos avg-cost]}]
   (let [position {:account account
@@ -365,17 +366,15 @@
     (swap! position-ctx update :positions conj position)))
 
 (defmethod handle-event :position-end [_]
-  (let [ctx (swap! position-ctx ctx/mark-done)]
-    (when (ctx/just-finished? ctx)
-      (go
-        (>! (:chan ctx) (:positions ctx))
-        (ctx/dispose ctx))
-      (.cancelPositions (client)))))
+  (when-let [ctx (ctx/mark-done! position-ctx)]
+    (go
+      (>! (ctx/out-chan ctx) (:positions ctx))
+      (ctx/dispose! ctx))
+    (.cancelPositions (client))))
 
 (defn req-positions
   "Returns chan that positions will be delivered to when all have been received."
   []
-  (let [ctx (swap! position-ctx (ctx/init-fn {:positions []}))]
-    (when (ctx/new? ctx)
-      (.reqPositions (client)))
-    (ctx/last-tap ctx)))
+  (ctx/tap! position-ctx
+             (fn [_]
+               (.reqPositions (client)))))
