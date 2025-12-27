@@ -34,6 +34,15 @@
           (println (format "%-3d %s" (.ordinal v) (.name v))))))
     (println (str "\nTotal: " (count values) " values\n"))))
 
+(defn method-names [clazz]
+  (let [reflected (clojure.reflect/reflect clazz :ancestors true)
+        methods (:members reflected)]
+    (->> methods
+         (filter :return-type)
+         (sort-by :name)
+         (map :name))))
+
+
 (comment
   ;; Dump TWS enums
   (dump-enum-with-api-string "com.ib.client.OrderType")

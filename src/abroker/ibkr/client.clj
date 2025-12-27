@@ -1,7 +1,7 @@
 (ns abroker.ibkr.client
-  (:require [clojure.core.async :as async
-             :refer [chan go go-loop <! >! close! mult put! tap untap-all alts!! timeout]]
+  (:require [clojure.core.async :as async :refer [chan go go-loop <! >! close! put!]]
             [clojure.tools.logging :as log]
+            [abroker.async-ctx :as ctx]
             [abroker.data :as d]
             [abroker.ibkr.data :as ibdata]
             [abroker.ibkr.ewrapper :as ewrapper]
@@ -208,50 +208,6 @@
       (log/error e "Couldn't connect"))))
 
 
-;; CALL CONTEXT fns, ctx-fn helps us be more efficient in how we call services,
-;; one example being, if there's an existing call in progress when another client
-;; request comes in, we can piggy back on the result.
-
-(defn- ctx-fn
-  "Reusable generic call ctx fn for calls that have state. Callers of a fn that uses
-  these (e.g. req-positions) should be returned the last chan in the taps vec.
-  EXAMPLE USE: reqPositions triggers many callbacks from TWS ending with a
-  positionEnd event, and theoretically multiple clients could be trying to call
-  req-positions while one is in progress. This ctx allows us to make just 1 call and
-  deliver the same result to all the callers when done. If the size of the taps vec
-  is 1 the initial reqPositions call needs to be made, but can be skipped otherwise.
-  Each caller is returned their own tap (the last tap in the taps vec after this
-  wrapped fn is called) to read eventual result from."
-  [addl-init-ctx]
-  (fn [ctx]
-    (if (or (not ctx) (pos? (:done ctx))) ; if ctx is empty or done, make a new one
-      (let [c (chan 1)
-            mux (mult c)]
-        (assoc addl-init-ctx
-               :done 0 ; int is more defensive than bool in case ibkr ever raises 2+ "end" events
-               :chan c
-               :mult mux
-               :taps [(tap mux (chan 1))]))
-      (update ctx :taps
-              conj (tap (:mult ctx) (chan 1))))))
-
-(defn- new? [ctx]
-  (= 1 (count (:taps ctx))))
-
-(defn- last-tap [ctx]
-  (peek (:taps ctx)))
-
-(defn- mark-done [ctx]
-  (update ctx :done inc))
-
-(defn- just-finished? [ctx]
-  (= 1 (:done ctx)))
-
-(defn- dispose [ctx]
-  (close! (:chan ctx))
-  (untap-all (:mult ctx)))
-
-
 ;; ORDERS
 
 (defmethod handle-event :open-order [{:keys [contract order order-state]}])
@@ -409,24 +365,18 @@
     (swap! position-ctx update :positions conj position)))
 
 (defmethod handle-event :position-end [_]
-  (let [ctx (swap! position-ctx mark-done)]
-    (when (just-finished? ctx)
+  (let [ctx (swap! position-ctx ctx/mark-done)]
+    (when (ctx/just-finished? ctx)
       (go
-        (>! chan (:positions ctx))
-        (dispose ctx)))
+        (>! (:chan ctx) (:positions ctx))
+        (ctx/dispose ctx)))
     (.cancelPositions (client))))
 
 (defn req-positions
   "Returns chan that positions will be delivered to when all have been received. Probably
   want to look at Account Summary/Portfolio instead though as this doesn't have $ amounts."
   []
-  (let [ctx (swap! position-ctx (ctx-fn {:positions []}))]
-    (when (new? ctx)
+  (let [ctx (swap! position-ctx (ctx/init-fn {:positions []}))]
+    (when (ctx/new? ctx)
       (.reqPositions (client)))
-    (last-tap ctx)))
-
-(comment
-  (let [c (req-positions)
-        c2 (req-positions)]
-    (println "first" (alts!! [c (timeout 2000)]))
-    (println "second" (alts!! [c2 (timeout 2000)]))))
+    (ctx/last-tap ctx)))
