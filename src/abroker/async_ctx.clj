@@ -5,7 +5,9 @@
   (:require [clojure.core.async :as async :refer [chan close! mult tap]]))
 
 (defn init-fn
-  "Returns a fn to init or update a call ctx to be used for async calls that have state.
+  "Returns a fn to init or update a ctx to be used for async calls that have state. If the
+  current call ctx is empty or done, a new one is created, else a new channel tap is created
+  and put into the ctx's taps vec.
   Callers of a fn that uses these call ctxs should be returned the last chan in the taps vec.
   EXAMPLE USE: reqPositions triggers many callbacks from TWS ending with a
   positionEnd event, and theoretically multiple clients could be trying to call
@@ -20,7 +22,7 @@
       (let [c (chan 1)
             mux (mult c)]
         (assoc addl-init-ctx
-               :done 0 ; int is more defensive than bool in case ibkr ever raises 2+ "end" events
+               :done 0 ; int is more defensive than bool in case a service ever raises 2+ "end" events
                :chan c
                :mult mux
                :taps [(tap mux (chan 1))]))

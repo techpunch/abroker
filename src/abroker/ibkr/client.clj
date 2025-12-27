@@ -369,8 +369,8 @@
     (when (ctx/just-finished? ctx)
       (go
         (>! (:chan ctx) (:positions ctx))
-        (ctx/dispose ctx)))
-    (.cancelPositions (client))))
+        (ctx/dispose ctx))
+      (.cancelPositions (client)))))
 
 (defn req-positions
   "Returns chan that positions will be delivered to when all have been received."
