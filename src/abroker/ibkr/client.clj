@@ -376,5 +376,5 @@
   "Returns chan that positions will be delivered to when all have been received."
   []
   (ctx/tap! position-ctx
-             (fn [_]
-               (.reqPositions (client)))))
+            (fn [_]
+              (.reqPositions (client)))))
