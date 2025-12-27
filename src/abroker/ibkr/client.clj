@@ -373,8 +373,7 @@
     (.cancelPositions (client))))
 
 (defn req-positions
-  "Returns chan that positions will be delivered to when all have been received. Probably
-  want to look at Account Summary/Portfolio instead though as this doesn't have $ amounts."
+  "Returns chan that positions will be delivered to when all have been received."
   []
   (let [ctx (swap! position-ctx (ctx/init-fn {:positions []}))]
     (when (ctx/new? ctx)
