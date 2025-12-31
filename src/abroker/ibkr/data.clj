@@ -3,7 +3,7 @@
            [java.time Instant LocalDate ZonedDateTime])
   (:require [clojure.string :as str]
             [java-time.api :as jt]
-            [techpunch.util :as u]))
+            [abroker.ibkr.codes :as codes]))
 
 
 ; Conversions to/from IB's custom Decimal class
@@ -138,10 +138,7 @@
                                 "SMART"))]
     (doto (Contract.)
       (.symbol (api-str symbol))
-      (.secType (case type
-                  :stock "STK"
-                  :crypto "CRYPTO"
-                  (u/throw-illegal-arg (type "Contract type " type))))
+      (.secType (codes/sec-type type))
       (.exchange exchange)
       (.currency currency))))
 

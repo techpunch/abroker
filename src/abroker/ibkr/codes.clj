@@ -113,3 +113,34 @@
 
 (def tick-fields-by-code
   (set/map-invert tick-fields-by-key))
+
+; maps ibkr's sec-type to our instrument-type
+(def instrument-type
+  {""        :none
+   "STK"     :stock
+   "OPT"     :option
+   "FUT"     :future
+   "CONTFUT" :continuous-future
+   "CASH"    :cash
+   "BOND"    :bond
+   "CFD"     :cfd
+   "FOP"     :future-option
+   "WAR"     :warrant
+   "IOPT"    :iopt
+   "FWD"     :fwd
+   "BAG"     :bag
+   "IND"     :index
+   "BILL"    :bill
+   "FUND"    :fund
+   "FIXED"   :fixed
+   "SLB"     :slb
+   "NEWS"    :news
+   "CMDTY"   :commodity
+   "BSK"     :bsk
+   "ICU"     :icu
+   "ICS"     :ics
+   "CRYPTO"  :crypto})
+
+; maps our instrument-type to ibkr's sec-type
+(def sec-type
+  (set/map-invert instrument-type))
