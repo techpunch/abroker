@@ -3,6 +3,7 @@
            [java.time Instant LocalDate ZonedDateTime])
   (:require [clojure.string :as str]
             [java-time.api :as jt]
+            [abroker.data :as data]
             [abroker.ibkr.codes :as codes]))
 
 
@@ -183,6 +184,6 @@
              :symbol (.symbol contract)
              :type type
              :quantity (as-double pos)
-             :avg-cost avg-cost}
+             :avg-cost (data/round-price avg-cost)}
       (= :option type) (assoc :subtype
                               (codes/option-subtype (.getRight contract))))))
