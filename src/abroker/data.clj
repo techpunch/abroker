@@ -211,10 +211,11 @@
   (assoc order :transmit? xmit?))
 
 
-;; Instruments - Tickers, Stocks, Crypto, etc. - what IBKR calls a Contract
+;; Instruments - Tickers, Stocks, Crypto, etc. - aka a Contract in IBKR speak or
+;; Asset in Alpaca speak or Instrument in Schwab speak
 
-; Naming note: 'symbol' is the term used by alpaca & ibkr instead of 'ticker', so we'll roll
-; with it in our data maps
+; Naming note: 'symbol' is the term used by alpaca, ibkr, and schwab instead of
+; 'ticker', so we'll roll with it in our data maps
 
 (defn ticker-str [ticker]
   (-> (name ticker)
@@ -230,6 +231,10 @@
 
 (defn crypto [symbol]
   (instrument :crypto symbol))
+
+(defn option [symbol put-call-subtype] ; TODO impl expiration/strike
+  (assoc (instrument :option symbol)
+         :subtype put-call-subtype))
 
 (defn resolve-instrument
   "If x is a str, we create a stock instrument from it, otherwise we return x, assuming

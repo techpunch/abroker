@@ -144,3 +144,13 @@
 ; maps our instrument-type to ibkr's sec-type
 (def sec-type
   (set/map-invert instrument-type))
+
+; maps ibkr's option right to our subtype
+(def option-subtype
+  {""  :none
+   "P" :put
+   "C" :call})
+
+; maps our option subtype to an ibkr right
+(def option-right
+  (set/map-invert option-subtype))

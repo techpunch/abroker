@@ -131,16 +131,19 @@
       (str/replace #"[\-\.]" " ")))
 
 (defn contract
-  [{:keys [type symbol exchange currency]
+  [{:keys [type subtype symbol exchange currency]
     :or {currency "USD"}}]
   (let [exchange (or exchange (case type
                                 :crypto "PAXOS"
-                                "SMART"))]
-    (doto (Contract.)
-      (.symbol (api-str symbol))
-      (.secType (codes/sec-type type))
-      (.exchange exchange)
-      (.currency currency))))
+                                "SMART"))
+        c (doto (Contract.)
+            (.symbol (api-str symbol))
+            (.secType (codes/sec-type type))
+            (.exchange exchange)
+            (.currency currency))]
+    (when (= :option type)
+      (.right c (codes/option-right subtype)))
+    c))
 
 (defn order
   [client-id order-id parent-id
@@ -169,3 +172,17 @@
     (when touch-price (.auxPrice o touch-price))
     (when trigger-method (.triggerMethod o (trigger-methods trigger-method)))
     o))
+
+(defn position
+  "Creates a position object from a raw IBKR response event. Returns a map with:
+  {:account _ :type _ :symbol _ :quantity _ :avg-cost _}. Type :option will also have
+  :subtype for :put or :call."
+  [{:keys [account contract pos avg-cost]}]
+  (let [type (codes/instrument-type (.getSecType contract))]
+    (cond-> {:account account
+             :symbol (.symbol contract)
+             :type type
+             :quantity (as-double pos)
+             :avg-cost avg-cost}
+      (= :option type) (assoc :subtype
+                              (codes/option-subtype (.getRight contract))))))
