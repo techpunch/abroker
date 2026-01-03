@@ -106,6 +106,15 @@
                     (log/info "Reconnect worker ending")
                     (reset! reconnecting-fut nil))))))))
 
+
+(defn- ctx-call!
+  "Ensures a connected client before calling ctx/tap!"
+  [ctx-atom on-new-ctx-f]
+  (if (connected-client)
+    (ctx/tap! ctx-atom on-new-ctx-f)
+    (log/error "Not Connected")))
+
+
 (defn client []
   (:client @connection))
 
@@ -358,12 +367,8 @@
 (def position-ctx
   (ctx/ctx-atom #(assoc % :positions [])))
 
-(defmethod handle-event :position [{:keys [account contract pos avg-cost]}]
-  (let [position {:account account
-                  :symbol (.symbol contract)
-                  :pos (ibdata/as-long pos)
-                  :avgCost avg-cost}]
-    (swap! position-ctx update :positions conj position)))
+(defmethod handle-event :position [position]
+  (swap! position-ctx update :positions conj (ibdata/position position)))
 
 (defmethod handle-event :position-end [_]
   (when-let [ctx (ctx/mark-done! position-ctx)]
@@ -373,8 +378,8 @@
     (.cancelPositions (client))))
 
 (defn req-positions
-  "Returns chan that positions will be delivered to when all have been received."
+  "Returns chan that positions will be delivered to when all have been received. See
+  fn abroker.ibkr.data/position for data details."
   []
-  (ctx/tap! position-ctx
-            (fn [_]
-              (.reqPositions (client)))))
+  (ctx-call! position-ctx (fn [_]
+                            (.reqPositions (client)))))
