@@ -11,6 +11,10 @@
                  :test-group test-group}
    :risk-mgmt {:max-order-amt 200000}})
 
+(defmacro with-empty-config [& body]
+  `(with-redefs [data/config (constantly nil)]
+    ~@body))
+
 (defmacro with-test-config [& body]
   `(with-redefs [data/config #(get-in broker-config %&)]
      ~@body))

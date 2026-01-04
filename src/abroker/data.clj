@@ -50,15 +50,6 @@
        (round-shares alloc)
        (long)))
 
-(defn calc-risk
-  "Returns the dollar risk amount, throwing an exception if the args
-  don't make sense."
-  [buy-or-sell entry-price stop-price]
-  (let [neg-risk? (case buy-or-sell :buy <= :sell >=)]
-    (when (neg-risk? entry-price stop-price)
-      (u/throw-illegal-arg "negative risk calc" entry-price stop-price)))
-  (abs (- entry-price stop-price)))
-
 (defn round-price [p]
   (let [scale (if (< p 1.0) 4 2)]
     (num/round-double scale p)))
@@ -264,14 +255,6 @@
 (defn add-stop [parent-order stop-order]
   (-> parent-order
       (update :stop-orders (fnil conj []) stop-order)))
-
-(defn risk-check
-  [{:keys [quantity limit-price stop-price touch-price] :as order}]
-  (let [price (or limit-price stop-price touch-price)
-        max-amt (config :risk-mgmt :max-order-amt)]
-    (when (and price (> (* price quantity) max-amt))
-      (u/throw-rte "Order exceeds max dollar amount allowed" quantity price max-amt))
-    order))
 
 (comment
   (-> (order :tax20 :buy 20)

@@ -6,6 +6,7 @@
             [abroker.ibkr.data :as ibdata]
             [abroker.ibkr.ewrapper :as ewrapper]
             [abroker.price :as price]
+            [abroker.risk :as risk]
             [techpunch.java :as j]
             [techpunch.util :as u])
   (:import [com.ib.client EClientSocket EReader Bar]))
@@ -227,7 +228,7 @@
   "Accepts our regular instrument & order, translates them to ibkr objs as necessary,
   and sends the order and any child orders. Returns the parent order id."
   [instrument order]
-  (d/risk-check order)
+  (risk/check order)
   (if-let [conn (client)]
     (let [ib-contract (ibdata/contract (cond-> instrument
                                          (:overnight? order) (assoc :exchange "OVERNIGHT"

@@ -26,12 +26,3 @@
   (is (= 100 (round-shares {} 100)))
   (is (= 101.0 (round-shares {} 100.2)))
   (is (= 120.0 (round-shares {:min-lot-size 20} 100.2))))
-
-(deftest risk-checking
-  (with-test-config
-    (is (risk-check {:quantity 199999 :limit-price 1}))
-    (is (thrown? RuntimeException (risk-check {:quantity 200001 :limit-price 1})))
-    (is (= 1 (calc-risk :buy 100 99)))
-    (is (= 1 (calc-risk :sell 99 100)))
-    (is (thrown? IllegalArgumentException (calc-risk :buy 99 100)))
-    (is (thrown? IllegalArgumentException (calc-risk :sell 100 99)))))
