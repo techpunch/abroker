@@ -2,19 +2,16 @@
    "Contains higher level tools that build on top of the TWS base API"
    (:require [clojure.core.async :refer [go chan >! close! alts! timeout]]
              [clojure.string :as str]
-             [clojure.tools.logging :as log]
-             [techpunch.num :refer [as-double]]))
+             [clojure.tools.logging :as log]))
 
 (defn nonzero [{:keys [quantity]}]
-  (let [qty (as-double quantity)]
-    (not= 0.0 qty)))
+  (not (zero? quantity)))
 
 (defn long-short [{:keys [quantity]}]
-  (let [qty (as-double quantity)]
-    (cond
-      (< qty 0.0) :short
-      (> qty 0.0) :long
-      :else :none)))
+  (cond
+    (neg? quantity) :short
+    (pos? quantity) :long
+    :else :none))
 
 (defn- aggregate-group [pos-group]
   (->> pos-group

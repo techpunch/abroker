@@ -4,19 +4,20 @@
             [abroker.ibkr.tools :as tools]))
 
 (def test-positions
-  [{:account "A" :symbol "AAPL" :type :stock :quantity 10.0 :avg-cost 150.0}
-   {:account "B" :symbol "AAPL" :type :stock :quantity 5.0 :avg-cost 160.0}
-   {:account "A" :symbol "XYZ" :type :stock :quantity -20.0 :avg-cost 250.0}
-   {:account "B" :symbol "XYZ" :type :stock :quantity -10.0 :avg-cost 250.0}
-   {:account "B" :symbol "CVNA" :type :option :subtype :put :quantity 2.0 :avg-cost 4000.0}
-   {:account "A" :symbol "GOOGL" :type :stock :quantity 0.0 :avg-cost 2800.0}
-   {:account "A" :symbol "MSFT" :type :stock :quantity 8 :avg-cost 380.0}])
+  [{:account "A" :symbol "AAPL" :type :stock :quantity 10.0M :avg-cost 150.0}
+   {:account "B" :symbol "AAPL" :type :stock :quantity 5.0M :avg-cost 160.0}
+   {:account "A" :symbol "XYZ" :type :stock :quantity -20.0M :avg-cost 250.0}
+   {:account "B" :symbol "XYZ" :type :stock :quantity -10.0M :avg-cost 250.0}
+   {:account "B" :symbol "CVNA" :type :option :subtype :put :quantity 2.0M :avg-cost 4000.0}
+   {:account "A" :symbol "GOOGL" :type :stock :quantity 0.0M :avg-cost 2800.0}
+   {:account "A" :symbol "MSFT" :type :stock :quantity 8M :avg-cost 380.0}])
 
 (deftest long-short-test
   (testing "Position classification"
-    (is (= :long (tools/long-short {:quantity 10.0})))
-    (is (= :short (tools/long-short {:quantity -5.0})))
+    (is (= :long (tools/long-short {:quantity 10.0M})))
+    (is (= :short (tools/long-short {:quantity -5.0M})))
     (is (= :none (tools/long-short {:quantity 0})))
+    (is (= :none (tools/long-short {:quantity 0M})))
     (is (= :none (tools/long-short {:quantity 0.0})))))
 
 (deftest group-positions-test
@@ -37,8 +38,8 @@
                (tools/positions-csv res)))))))
 
 (testing "Custom filter predicate"
-  (let [positions [{:account "A" :symbol "AAPL" :type :stock :quantity 10 :avg-cost 150.0}
-                   {:account "B" :symbol "XYZ" :type :stock :quantity 5 :avg-cost 200.0}]
+  (let [positions [{:account "A" :symbol "AAPL" :type :stock :quantity 10M :avg-cost 150.0}
+                   {:account "B" :symbol "XYZ" :type :stock :quantity 5M :avg-cost 200.0}]
         account-filter #(= "A" (:account %))
         result (tools/group-positions account-filter positions)]
     (is (= {:stock {:long [["AAPL" 1500.0]]}} result))))
