@@ -72,4 +72,4 @@
           res-chan (tools/req-single! req-f :timeout-ms timeout-ms)
           res (<!! res-chan)]
       (is (nil? res) "Should close on timeout")
-      (println "WARNING log message is normal for this test"))))
+      (println "A timeout warning log message is normal for this timeout test"))))
