@@ -12,27 +12,32 @@
 (defprotocol IBDecimalConvert
   "Convert to & from ibrk's Decimal type"
   (^Decimal as-decimal [x] "Coerce to an ibkr Decimal")
+  (^BigDecimal as-bigdec [x] "Coerce to a java BigDecimal")
   (^double as-double [x] "Coerce to double")
   (^long as-long [x] "Coerce to long"))
 
 (extend-protocol IBDecimalConvert
   nil
   (as-decimal [_] nil)
+  (as-bigdec [_]  nil)
   (as-double [_] nil)
   (as-long [_] nil)
 
   Decimal
   (as-decimal [d] d)
+  (as-bigdec [d] (.value d))
   (as-double [d] (.doubleValue (.value d)))
   (as-long [d] (.longValue d))
 
   Long
   (as-decimal [l] (Decimal/get l))
+  (as-bigdec [l] (bigdec l))
   (as-double [l] (.doubleValue l))
   (as-long [l] l)
 
   Double
   (as-decimal [d] (Decimal/get d))
+  (as-bigdec [d] (bigdec d))
   (as-double [d] d)
   (as-long [d] (.doubleValue d)))
 
@@ -183,7 +188,7 @@
     (cond-> {:account account
              :symbol (.symbol contract)
              :type type
-             :quantity (as-double pos)
+             :quantity (as-bigdec pos)
              :avg-cost (data/round-price avg-cost)}
       (= :option type) (assoc :subtype
                               (codes/option-subtype (.getRight contract))))))
