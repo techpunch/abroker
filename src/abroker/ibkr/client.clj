@@ -369,11 +369,14 @@
   (ctx/ctx-atom #(assoc % :positions [])))
 
 (defmethod handle-event :position [position]
-  (swap! position-ctx update :positions conj (ibdata/position position)))
+  (->> position
+       (ibdata/position)
+       (swap! position-ctx update :positions conj)))
 
 (defmethod handle-event :position-end [_]
   (when-let [ctx (ctx/mark-done! position-ctx)]
     (go
+      (log/trace "position-end count" (count (:positions @position-ctx)))
       (>! (ctx/out-chan ctx) (:positions ctx))
       (ctx/dispose! ctx))
     (.cancelPositions (client))))

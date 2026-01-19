@@ -2,6 +2,7 @@
   (:import [com.ib.client Contract Order Decimal]
            [java.time Instant LocalDate ZonedDateTime])
   (:require [clojure.string :as str]
+            [clojure.tools.logging :as log]
             [java-time.api :as jt]
             [abroker.data :as data]
             [abroker.ibkr.codes :as codes]))
@@ -25,7 +26,7 @@
 
   Decimal
   (as-decimal [d] d)
-  (as-bigdec [d] (.value d))
+  (as-bigdec [d] (.stripTrailingZeros (.value d)))
   (as-double [d] (.doubleValue (.value d)))
   (as-long [d] (.longValue d))
 
@@ -185,6 +186,7 @@
   :subtype for :put or :call."
   [{:keys [account contract pos avg-cost]}]
   (let [type (codes/instrument-type (.getSecType contract))]
+    (log/trace "position: " (.symbol contract) (as-bigdec pos))
     (cond-> {:account account
              :symbol (.symbol contract)
              :type type
