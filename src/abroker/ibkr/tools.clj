@@ -63,13 +63,13 @@
   be delivered the result then closed."
   [req-f & {:keys [timeout-ms] :or {timeout-ms 6000}}]
   (let [out (chan 1)
-        pos-chan (req-f)
+        res-chan (req-f)
         timer (timeout timeout-ms)]
-    (when pos-chan
+    (when res-chan
       (go
-        (let [[positions c] (alts! [pos-chan timer])]
+        (let [[positions c] (alts! [res-chan timer])]
           (if (= c timer)
-            (log/warn "ReqPositions Timeout")
+            (log/warn "req-single! Timeout, req-f:" req-f)
             (>! out positions))
           (close! out)))
       out)))
