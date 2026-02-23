@@ -206,6 +206,11 @@
       ;; NOTE I've combined tickPrice tickSize tickGeneric tickString into
       ;; event type :tick-field
 
+      ;; IBKR Feb2026 change notice: (I haven't needed to change any code for this yet):
+      ; Beginning with the release of Trader Workstation and IBKR Gateway 10.44, the “LAST_SIZE”
+      ; and “DELAYED_LAST_SIZE” tick type delivered to the EWrapper.tickSize size argument will
+      ; act as a Decimal-type value instead of an Integer-type value.
+
       ; tickPrice(int reqId, int field, double price, TickAttrib attrib)
       (tickPrice [_ req-id field price attrib]
         (let [field (tick-fields-by-code field)]
