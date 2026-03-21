@@ -2,58 +2,52 @@
 
 Architectural and design decisions, with rationale.
 
----
 
-## Two-layer architecture: broker-agnostic + adapters
+## FA group ghost position filtering [2026-03]
 
-**Decision:** Core namespaces (`data`, `trading`, `risk`, `price`, `async-ctx`) are broker-agnostic. Broker-specific code lives in adapter subdirectories (currently `ibkr/`).
+Decision: `tools.clj` filters out zero-average-cost positions created by FA group trades for recently-closed positions.
 
-**Why:** Enables adding new brokers (Alpaca, Schwab) without touching core logic. Callers program against the generic data model; adapter translates to/from broker-native types.
+Why: IBKR sends phantom position records for FA group allocations even after the position is fully closed. Without filtering, these appear as open positions with $0 cost basis.
 
----
 
-## core.async channel for TWS callbacks
+## Call context pattern (`async-ctx`) for deduplication [2025-12]
+(extracted from `client.clj` into own namespace)
 
-**Decision:** `ewrapper.clj` implements `EWrapper` and funnels every TWS callback into a single core.async channel. A worker go-loop dispatches via `handle-event` multimethod.
+Decision: When multiple callers concurrently request the same paced operation (e.g. `reqPositions`), they share a single in-flight channel rather than each issuing a separate request.
 
-**Why:** TWS callbacks arrive on a dedicated socket thread. Doing real work inside those callbacks risks blocking the reader and stalling the connection. The channel decouples arrival from processing.
+Why: IBKR rate-limits API calls. `reqPositions` fires many individual callbacks before signaling completion — issuing it multiple times concurrently would produce interleaved, ambiguous results.
 
----
 
-## Call context pattern (`async-ctx`) for deduplication
+## Two-layer architecture: broker-agnostic + adapters [2025-12]
 
-**Decision:** When multiple callers concurrently request the same paced operation (e.g. `reqPositions`), they share a single in-flight channel rather than each issuing a separate request.
+Decision: Core namespaces (`data`, `trading`, `risk`, `price`, `async-ctx`) are broker-agnostic. Broker-specific code lives in adapter subdirectories (currently `ibkr/`).
 
-**Why:** IBKR rate-limits API calls. `reqPositions` fires many individual callbacks before signaling completion — issuing it multiple times concurrently would produce interleaved, ambiguous results.
+Why: Enables adding new brokers (Alpaca, Schwab) without touching core logic. Callers program against the generic data model; adapter translates to/from broker-native types.
 
----
 
-## Exponential backoff reconnect
+## core.async channel for TWS callbacks [2025-12]
 
-**Decision:** On disconnect (IBKR error codes 1100/1102), retry with backoff starting at 2s, doubling each attempt, capped at 60s. Reconnect is disabled on explicit disconnect.
+Decision: `ewrapper.clj` implements `EWrapper` and funnels every TWS callback into a single core.async channel. A worker go-loop dispatches via `handle-event` multimethod.
 
-**Why:** TWS does a daily auto-restart. Aggressive retries would spam the log and potentially confuse TWS mid-restart. The cap prevents indefinite long waits if the problem is persistent.
+Why: TWS callbacks arrive on a dedicated socket thread. Doing real work inside those callbacks risks blocking the reader and stalling the connection. The channel decouples arrival from processing.
 
----
 
-## EDN config via cprop
+## Exponential backoff reconnect [2025-12]
 
-**Decision:** Runtime config (`resources/config.edn`) is gitignored; `config.sample.edn` is the template. cprop handles loading.
+Decision: On disconnect (IBKR error codes 1100/1102), retry with backoff starting at 2s, doubling each attempt, capped at 60s. Reconnect is disabled on explicit disconnect.
 
-**Why:** Keeps credentials and account IDs out of version control. cprop supports env var overrides which is useful in CI or containerized deployments.
+Why: TWS does a daily auto-restart. Aggressive retries would spam the log and potentially confuse TWS mid-restart. The cap prevents indefinite long waits if the problem is persistent.
 
----
 
-## Canonical order status (6 states)
+## EDN config via cprop [2025-12]
 
-**Decision:** IBKR's 11+ order status strings are normalized to 6 canonical states: `:pending`, `:open`, `:partially-filled`, `:filled`, `:cancelled`, `:error`.
+Decision: Runtime config (`resources/config.edn`) is gitignored; `config.sample.edn` is the template. cprop handles loading.
 
-**Why:** Broker-agnostic callers shouldn't need to know IBKR's internal status distinctions (e.g. `PreSubmitted` vs `Submitted`). The mapping is in `ibkr/data.clj`; full state machine is in `doc/data-model/OrderModel.md`.
+Why: Keeps credentials and account IDs out of version control. cprop supports env var overrides which is useful in CI or containerized deployments.
 
----
 
-## FA group ghost position filtering
+## Canonical order status (6 states) [2025-12]
 
-**Decision:** `tools.clj` filters out zero-average-cost positions created by FA group trades for recently-closed positions.
+Decision: IBKR's 11+ order status strings are normalized to 6 canonical states: `:pending`, `:open`, `:partially-filled`, `:filled`, `:cancelled`, `:error`.
 
-**Why:** IBKR sends phantom position records for FA group allocations even after the position is fully closed. Without filtering, these appear as open positions with $0 cost basis.
+Why: Broker-agnostic callers shouldn't need to know IBKR's internal status distinctions (e.g. `PreSubmitted` vs `Submitted`). The mapping is in `ibkr/data.clj`; full state machine is in `doc/data-model/OrderModel.md`.
