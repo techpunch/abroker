@@ -44,6 +44,33 @@
         result (tools/group-positions account-filter positions)]
     (is (= {:stock {:long [["AAPL" 1500.0]]}} result))))
 
+; Positions as IBKR reports them when FA allocation groups are in use.
+; Real account IDs look like U12345678. Alloc group "accounts" are user-named
+; strings (Tax20, Tax4, TrIra etc.) and always report avg-cost 0.0.
+; When a position is closed in real accounts, alloc groups may still report
+; it with a non-zero quantity — a ghost position.
+(def positions-with-alloc-ghosts
+  [; real accounts — COIN is open, XYZ is fully closed (not reported at all)
+   {:account "U12345678" :symbol "COIN" :type :stock :quantity 20M  :avg-cost 241.67}
+   {:account "U87654321" :symbol "COIN" :type :stock :quantity 20M  :avg-cost 239.28}
+   ; alloc group entries for COIN (real position, but zero avg-cost dupes)
+   {:account "Tax20"     :symbol "COIN" :type :stock :quantity 40M  :avg-cost 0.0}
+   {:account "Tax4"      :symbol "COIN" :type :stock :quantity 30M  :avg-cost 0.0}
+   ; alloc group ghost: XYZ was closed in real accounts but alloc still carries it
+   {:account "Tax20"     :symbol "XYZ"  :type :stock :quantity 40M  :avg-cost 0.0}
+   {:account "Tax4"      :symbol "XYZ"  :type :stock :quantity 30M  :avg-cost 0.0}])
+
+(deftest alloc-group-ghost-positions-test
+  (testing "alloc group positions with avg-cost 0.0 are excluded from grouped output"
+    (let [res (tools/group-positions positions-with-alloc-ghosts)]
+      (testing "ghost symbol held only by alloc groups does not appear"
+        (is (not (some #(= "XYZ" (first %)) (get-in res [:stock :long])))
+            "XYZ is a ghost from alloc groups only and should be filtered"))
+      (testing "real symbol aggregates only real account quantities, not alloc group dupes"
+        (is (= [["COIN" (+ (* 20M 241.67) (* 20M 239.28))]]
+               (get-in res [:stock :long]))
+            "COIN qty/cost should reflect only real account positions")))))
+
 (deftest req-single!-test
   (testing "Integration with async channel"
     (let [expected {:data :test}

@@ -7,6 +7,9 @@
 (defn nonzero [{:keys [quantity]}]
   (not (zero? quantity)))
 
+(defn has-cost? [{:keys [avg-cost]}]
+  (pos? avg-cost))
+
 (defn long-short [{:keys [quantity]}]
   (cond
     (neg? quantity) :short
@@ -21,8 +24,10 @@
        (sort-by second >)))
 
 (defn group-positions
-  "Groups nonzero positions (discarding others) by :long :short then by :type. Each
-  :long/:short is sorted by total avg-cost desc. Applies optional filter-pred to
+  "Groups real positions (nonzero quantity, nonzero avg-cost) by :long/:short then
+  by :type. Positions with avg-cost 0.0 are discarded — IBKR reports FA allocation
+  group entries this way, and they can appear as ghosts for recently-closed positions.
+  Each :long/:short is sorted by total avg-cost desc. Applies optional filter-pred to
   positions before grouping. Result format example:
   {:stock {:long [...] :short [...]}
    :option {:long [...] :short [...]}
@@ -31,7 +36,7 @@
    (group-positions identity positions))
   ([filter-pred positions]
    (->> positions
-        (filter (every-pred nonzero filter-pred))
+        (filter (every-pred nonzero has-cost? filter-pred))
         (group-by :type)
         (map (fn [[type-key positions]]
                [type-key
