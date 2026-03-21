@@ -75,5 +75,14 @@ Example sending a 100 share GTC market order with an attached stop, assuming you
 ```
 
 
+## More docs / notes
+
+- [doc/data-model/AllocationModel.md](doc/data-model/AllocationModel.md)
+- [doc/data-model/OrderModel.md](doc/data-model/OrderModel.md)
+- [doc/data-model/TradeModel.md](doc/data-model/TradeModel.md)
+- [doc/ResearchNotes.md](doc/ResearchNotes.md)
+- [doc/ResearchOrderStatus.md](doc/ResearchOrderStatus.md)
+
+---
 ---
 Copyright © 2025 Techpunch LLC
