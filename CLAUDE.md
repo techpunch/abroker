@@ -1,0 +1,1 @@
+CRITICAL: For core project rules and agent instructions, always refer to AGENTS.md
