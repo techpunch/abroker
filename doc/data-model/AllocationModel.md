@@ -4,7 +4,18 @@ An allocation specifies which account(s) an Order or Trade applies to.
 
 When a trade targets an allocation, it fans out into one Trade per account (see [TradeModel.md](TradeModel.md)). The allocation defines *how* to split; broker adapters decide whether to use a native allocation or emit separate orders.
 
-There are 2 types of Allocations: Accounts and Account Groups.
+There are 3 ways to specify an allocation: a plain string (shorthand), an Account map, or an Account Group map.
+
+
+## String shorthand
+
+A plain string is the simplest form — it's treated as a single account id:
+
+```clojure
+"U1234567"   ; equivalent to {:account "U1234567"}
+```
+
+This is useful for quick ad-hoc orders without defining a named allocation in config. This should really only be used in situations where you have 1 account at 1 broker.
 
 
 ## Account

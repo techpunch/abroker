@@ -17,8 +17,9 @@
 (defn allocation [alloc-or-key]
   (cond
     (keyword? alloc-or-key) (alloc-or-key (config :allocations))
-    (map? alloc-or-key) alloc-or-key
-    :else (u/throw-illegal-arg (str "Expected keyword or map: " alloc-or-key))))
+    (string? alloc-or-key)  {:account alloc-or-key}
+    (map? alloc-or-key)     alloc-or-key
+    :else (u/throw-illegal-arg (str "Expected keyword, string account id, or map: " alloc-or-key))))
 
 (defn group [alloc]
   (:alloc-group alloc))
@@ -238,8 +239,8 @@
 ;; Orders
 
 (defn order
-  "alloc-or-key is either an allocation map or the key of one in the app config.
-  action is :buy or :sell"
+  "alloc-or-key is an allocation map, a keyword key into the app config, or a
+  plain string treated as a single account id. action is :buy or :sell"
   [alloc-or-key action quantity]
   (let [alloc (allocation alloc-or-key)]
     (valid-arg alloc "allocation not found in config:" alloc-or-key)
