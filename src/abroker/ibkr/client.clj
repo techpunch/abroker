@@ -43,6 +43,10 @@
 
 (defonce ^:private error-chan-by-req-id (atom {}))
 
+; forward decl: an errored request may belong to an in-flight scanner (see MARKET
+; SCANNER below), which we then tear down rather than leaving the caller hanging
+(declare fail-scan!)
+
 (defn- tap-errors [req-id]
   (let [c (chan 1)]
     ; TODO WIP - finish implementing & testing
@@ -67,6 +71,7 @@
       (#{1100 1102} error-code) nil
       :else (do
               (log/error req-id error-code error-msg advanced-order-reject-json)
+              (when req-id (fail-scan! req-id))
               (when-let [c (and req-id (@error-chan-by-req-id req-id))]
                 (put! c error-event))))))
 
@@ -387,3 +392,99 @@
   []
   (ctx-call! position-ctx (fn [_]
                             (.reqPositions (client)))))
+
+
+;; MARKET SCANNER (aka Screener)
+; IBKR scanner subscriptions stream: TWS sends a batch of scannerData callbacks
+; followed by scannerDataEnd, then keeps pushing updated snapshots until canceled.
+; We treat a scan as a one-shot: accumulate the first batch, deliver it, and cancel.
+; Keyed by req-id so multiple scans with different subscriptions can run concurrently.
+
+(defonce ^:private scanner-results (atom {}))
+
+(defn- take-scan!
+  "Atomically removes and returns the in-flight scan entry for req-id, or nil if there
+  is none (already delivered, or never a scan)."
+  [req-id]
+  (-> (swap-vals! scanner-results dissoc req-id)
+      (first)
+      (get req-id)))
+
+(defn- fail-scan!
+  "Tears down an in-flight scan whose request errored: closes the caller's chan (an
+  empty result, not a hang) and drops the entry. No-op for non-scanner req-ids."
+  [req-id]
+  (when-let [{:keys [out]} (take-scan! req-id)]
+    (log/warn "scan request" req-id "failed, closing")
+    (close! out)))
+
+(defmethod handle-event :scanner-data [{:keys [req-id] :as event}]
+  ; only accumulate for a live request; ignore stray updates arriving after we deliver
+  (when (contains? @scanner-results req-id)
+    (swap! scanner-results update-in [req-id :results] conj (ibdata/scan-result event))))
+
+(defmethod handle-event :scanner-data-end [{:keys [req-id]}]
+  (when-let [{:keys [out results]} (take-scan! req-id)]
+    ; deliver first (the contract), then cancel best-effort - if the cancel interop
+    ; throws (e.g. disconnected mid-scan) the caller has already received results
+    (go
+      (>! out (sort-by :rank results))
+      (close! out))
+    (.cancelScannerSubscription (client) req-id)))
+
+(defn req-scanner
+  "Runs an IBKR market scanner (screener) and returns a chan delivering a vector of
+  scan-result maps sorted by rank, then closing, once the initial snapshot completes.
+  The subscription is auto-canceled after that snapshot. With no args, scans the top
+  25 percent gainers among major US stocks. `opts` overrides the defaults - see
+  abroker.ibkr.data/scanner-subscription; an optional :filters map (see
+  abroker.ibkr.data/scan-filters) adds IBKR filter tag/value pairs. See
+  abroker.ibkr.data/scan-result for the shape of each result."
+  ([] (req-scanner {}))
+  ([opts]
+   (if (connected-client)
+     (let [req-id (next-req-id)
+           out (chan 1)]
+       (swap! scanner-results assoc req-id {:out out :results []})
+       (.reqScannerSubscription (client) req-id
+                                (ibdata/scanner-subscription opts)
+                                nil (ibdata/scan-filters (:filters opts)))
+       out)
+     (log/error "Not Connected"))))
+
+
+;; SCANNER PARAMETERS
+; The (large) XML doc listing every valid scan code, location, and filter tag. The
+; scannerParameters callback carries no req-id, so a single in-flight request at a time.
+
+(defonce ^:private scanner-params-chan (atom nil))
+
+(defmethod handle-event :scanner-parameters [{:keys [xml]}]
+  (when-let [c @scanner-params-chan]
+    (reset! scanner-params-chan nil)
+    (go
+      (>! c xml)
+      (close! c))))
+
+(defn req-scanner-params
+  "Requests the XML doc describing all valid scanner parameters (scan codes, locations,
+  filter tags). Returns a chan delivering the XML string. Useful for discovering codes
+  beyond the friendly aliases in abroker.ibkr.data/scan-codes."
+  []
+  (if (connected-client)
+    (let [c (chan 1)
+          [old _] (reset-vals! scanner-params-chan c)]
+      (when old (close! old)) ; a superseded waiter gets a closed chan, not a hang
+      (.reqScannerParameters (client))
+      c)
+    (log/error "Not Connected")))
+
+(comment
+  ; top gainers with good defaults
+  (require '[abroker.ibkr.tools :as tools])
+  (tools/req-single! req-scanner)
+  ; most-active US stocks priced over $10 with a filter
+  (tools/req-single! #(req-scanner {:scan-code :most-active
+                                    :above-price 10
+                                    :filters {"changePercAbove" 3}}))
+  (tools/req-single! req-scanner-params :timeout-ms 15000))

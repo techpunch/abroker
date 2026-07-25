@@ -1,5 +1,5 @@
 (ns abroker.ibkr.data
-  (:import [com.ib.client Contract Order Decimal]
+  (:import [com.ib.client Contract Order Decimal ScannerSubscription TagValue]
            [java.time Instant LocalDate ZonedDateTime])
   (:require [clojure.string :as str]
             [clojure.tools.logging :as log]
@@ -194,3 +194,100 @@
              :avg-cost (data/round-price avg-cost)}
       (= :option type) (assoc :subtype
                               (codes/option-subtype (.getRight contract))))))
+
+
+;; Market Scanner (aka Screener)
+
+; Friendly keyword aliases for the most useful scan codes. The scanCode field also
+; accepts any raw IBKR code string directly (there are hundreds - see the XML from
+; client/req-scanner-params). https://www.interactivebrokers.com/campus/ibkr-api-page/twsapi-doc/#scanner-code
+(def scan-codes
+  {:top-gainers            "TOP_PERC_GAIN"
+   :top-losers             "TOP_PERC_LOSE"
+   :most-active            "MOST_ACTIVE"
+   :most-active-usd        "MOST_ACTIVE_USD"
+   :hot-by-volume          "HOT_BY_VOLUME"
+   :hot-by-price           "HOT_BY_PRICE"
+   :top-open-gainers       "TOP_OPEN_PERC_GAIN"
+   :top-open-losers        "TOP_OPEN_PERC_LOSE"
+   :high-vs-52w-high       "HIGH_VS_52W_HIGH"
+   :low-vs-52w-low         "LOW_VS_52W_LOW"
+   :high-dividend-yield    "HIGH_DIVIDEND_YIELD_IB"
+   :high-opt-imp-vol       "HIGH_OPT_IMP_VOLAT"})
+
+; Friendly keyword aliases for scan location codes. Like scanCode, the locationCode
+; field also accepts any raw IBKR location string directly.
+(def scan-locations
+  {:us-major "STK.US.MAJOR"
+   :us-minor "STK.US.MINOR"
+   :us       "STK.US"
+   :us-otc   "STK.US.OTC"})
+
+; Sensible defaults: the 25 biggest percent gainers among major US stocks.
+(def default-scan
+  {:instrument        "STK"
+   :location          :us-major
+   :scan-code         :top-gainers
+   :rows              25
+   :stock-type-filter "ALL"})
+
+(defn- scan-str
+  "Resolves x to an IBKR field string via alias-map m: strings pass through unchanged,
+  a known keyword maps to its code, and an unknown keyword is a clear error (catching
+  typos here rather than as a downstream ClassCastException in the setter). `what`
+  names the field for the error message."
+  [what m x]
+  (cond
+    (string? x)     x
+    (contains? m x) (m x)
+    :else (throw (ex-info (str "Unknown scanner " what ": " x)
+                          {:value x :known (vec (sort (keys m)))}))))
+
+(defn scanner-subscription
+  "Builds an IBKR ScannerSubscription from an opts map merged over `default-scan`.
+  :scan-code and :location accept a friendly keyword (see scan-codes / scan-locations)
+  or a raw IBKR string. Recognized keys: :instrument :location :scan-code :rows
+  :stock-type-filter :above-price :below-price :above-volume :market-cap-above
+  :market-cap-below :avg-option-volume-above."
+  [opts]
+  (let [{:keys [instrument location scan-code rows stock-type-filter
+                above-price below-price above-volume
+                market-cap-above market-cap-below avg-option-volume-above]}
+        (merge default-scan opts)
+        s (doto (ScannerSubscription.)
+            (.instrument instrument)
+            (.locationCode (scan-str "location" scan-locations location))
+            (.scanCode (scan-str "scan-code" scan-codes scan-code))
+            (.numberOfRows (int rows)))]
+    (when stock-type-filter (.stockTypeFilter s stock-type-filter))
+    (when above-price (.abovePrice s (double above-price)))
+    (when below-price (.belowPrice s (double below-price)))
+    (when above-volume (.aboveVolume s (int above-volume)))
+    (when market-cap-above (.marketCapAbove s (double market-cap-above)))
+    (when market-cap-below (.marketCapBelow s (double market-cap-below)))
+    (when avg-option-volume-above (.averageOptionVolumeAbove s (int avg-option-volume-above)))
+    s))
+
+(defn scan-filters
+  "Builds IBKR's scanner filter TagValue list from a map like
+  {\"changePercAbove\" 5 \"priceAbove\" 10}. Tag keys and values are stringified.
+  Returns a vector (a java.util.List) or nil when there are no filters."
+  [filters]
+  (when (seq filters)
+    (mapv (fn [[tag value]] (TagValue. (name tag) (str value))) filters)))
+
+(defn scan-result
+  "Converts a raw :scanner-data event into a result map. The :symbol/:type/:currency
+  keys form a usable instrument for follow-on requests (req-mkt-data, send-order!, etc).
+  Empty string fields from IBKR are normalized to nil."
+  [{:keys [rank contract-details]}]
+  (let [c (.contract contract-details)]
+    {:rank     rank
+     :symbol   (.symbol c)
+     :con-id   (.conid c)
+     :type     (codes/instrument-type (.getSecType c))
+     :currency (.currency c)
+     :exchange (or (not-empty (.primaryExch c)) (not-empty (.exchange c)))
+     :name     (not-empty (.longName contract-details))
+     :industry (not-empty (.industry contract-details))
+     :category (not-empty (.category contract-details))}))
