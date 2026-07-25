@@ -8,3 +8,4 @@
 /.lsp
 /resources/config.edn
 /src-dustbin
+/.claude/
