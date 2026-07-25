@@ -1,5 +1,5 @@
 (ns abroker.ibkr.data
-  (:import [com.ib.client Contract Order Decimal]
+  (:import [com.ib.client Contract Order Decimal ScannerSubscription TagValue]
            [java.time Instant LocalDate ZonedDateTime])
   (:require [clojure.string :as str]
             [clojure.tools.logging :as log]
@@ -179,6 +179,65 @@
     (when touch-price (.auxPrice o touch-price))
     (when trigger-method (.triggerMethod o (trigger-methods trigger-method)))
     o))
+
+;; Scanner (aka screener)
+
+(defn scanner-code
+  "x is a string, symbol, or keyword. Returns the ibkr scanner-friendly version of x,
+  e.g. :top-perc-gain -> \"TOP_PERC_GAIN\", :stk.us.major -> \"STK.US.MAJOR\"."
+  [x]
+  (-> (name x)
+      (str/upper-case)
+      (str/replace "-" "_")))
+
+(defn tag-values
+  "Converts map m to a java List of ibkr TagValue, e.g. for scanner filter options.
+  Keys can be keywords or strings and are passed through as-is (ibkr filter tags are
+  camelCase, e.g. :changePercAbove). Values are str'd."
+  [m]
+  (let [l (java.util.ArrayList.)]
+    (doseq [[k v] m]
+      (.add l (TagValue. (name k) (str v))))
+    l))
+
+(defn scanner-subscription
+  "Builds an ibkr ScannerSubscription from a scan spec map. Required: :instrument
+  (e.g. :stk), :location (e.g. :stk.us.major), :scan-code (e.g. :top-perc-gain,
+  :most-active, :hot-by-volume). Optional: :num-rows (ibkr caps at 50), :above-price,
+  :below-price, :above-volume, :avg-option-volume-above, :market-cap-above,
+  :market-cap-below, :stock-type-filter (\"CORP\", \"ADR\", \"ETF\" etc)."
+  [{:keys [instrument location scan-code num-rows above-price below-price above-volume
+           avg-option-volume-above market-cap-above market-cap-below stock-type-filter]}]
+  (let [sub (doto (ScannerSubscription.)
+              (.instrument (scanner-code instrument))
+              (.locationCode (scanner-code location))
+              (.scanCode (scanner-code scan-code)))]
+    (when num-rows (.numberOfRows sub (int num-rows)))
+    (when above-price (.abovePrice sub (double above-price)))
+    (when below-price (.belowPrice sub (double below-price)))
+    (when above-volume (.aboveVolume sub (int above-volume)))
+    (when avg-option-volume-above (.averageOptionVolumeAbove sub (int avg-option-volume-above)))
+    (when market-cap-above (.marketCapAbove sub (double market-cap-above)))
+    (when market-cap-below (.marketCapBelow sub (double market-cap-below)))
+    (when stock-type-filter (.stockTypeFilter sub stock-type-filter))
+    sub))
+
+(defn scan-result
+  "Creates a scan result from a raw IBKR scannerData event. Returns a map with:
+  {:rank _ :symbol _ :type _ :exchange _ :currency _ :con-id _}. The mostly-legacy
+  :distance/:benchmark/:projection fields are included only when ibkr sends them
+  non-blank."
+  [{:keys [rank contract-details distance benchmark projection]}]
+  (let [contract (.contract contract-details)]
+    (cond-> {:rank rank
+             :symbol (.symbol contract)
+             :type (codes/instrument-type (.getSecType contract))
+             :exchange (.exchange contract)
+             :currency (.currency contract)
+             :con-id (.conid contract)}
+      (seq distance) (assoc :distance distance)
+      (seq benchmark) (assoc :benchmark benchmark)
+      (seq projection) (assoc :projection projection))))
 
 (defn position
   "Creates a position object from a raw IBKR response event. Returns a map with:

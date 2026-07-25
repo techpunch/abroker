@@ -29,6 +29,8 @@
 
 (defmethod handle-event :default [_]) ; default catch-all - do nothing
 
+(declare abort-scan!)
+
 ;; ERROR HANDLING
 
 (def chatty-error?
@@ -68,7 +70,8 @@
       :else (do
               (log/error req-id error-code error-msg advanced-order-reject-json)
               (when-let [c (and req-id (@error-chan-by-req-id req-id))]
-                (put! c error-event))))))
+                (put! c error-event))
+              (when req-id (abort-scan! req-id))))))
 
 
 ;; CONNECTION STUFF
@@ -361,6 +364,109 @@
   (req-historical-data :nvda "1 D" :1d true false)
   (req-historical-data (d/crypto :btc) "1 D" :1m false true)
   (cancel-historical-data))
+
+
+;; SCANNER (aka Screener)
+; IBKR Pacing/Limits: max 10 concurrent scanner subscriptions, and results are
+; capped at 50 rows per scan.
+; https://www.interactivebrokers.com/campus/ibkr-api-page/twsapi-doc/#market-scanner
+
+(defonce ^:private scan-by-req-id (atom {}))
+
+(defn- abort-scan!
+  "Removes a pending scan and closes its result chan without delivering, e.g. when
+  TWS rejects the scan request. No-op for req-ids that aren't pending scans."
+  [req-id]
+  (let [[old _] (swap-vals! scan-by-req-id dissoc req-id)]
+    (when-let [{:keys [out]} (old req-id)]
+      (close! out))))
+
+(defmethod handle-event :scanner-data [{:keys [req-id] :as event}]
+  (let [result (ibdata/scan-result event)]
+    ; guard inside swap so a concurrent cancel can't resurrect a removed scan
+    (swap! scan-by-req-id
+           (fn [scans]
+             (cond-> scans
+               (scans req-id) (update-in [req-id :results] conj result))))))
+
+(defmethod handle-event :scanner-data-end [{:keys [req-id]}]
+  (let [[old _] (swap-vals! scan-by-req-id dissoc req-id)]
+    (when-let [{:keys [out results]} (old req-id)]
+      (log/trace "scanner-data-end count" (count results))
+      (put! out (vec (sort-by :rank results)))
+      (close! out)))
+  ; a scanner subscription would otherwise keep streaming re-ranks every ~30s,
+  ; holding one of the 10 slots, so we treat scans as one-shot and cancel here
+  (when-let [c (connected-client)]
+    (.cancelScannerSubscription c req-id)))
+
+(def default-scan
+  "Liquid US movers: top % gainers on major US exchanges, excluding penny stocks,
+  micro caps, and thin volume."
+  {:instrument :stk
+   :location :stk.us.major
+   :scan-code :top-perc-gain
+   :num-rows 25
+   :above-price 5.0
+   :above-volume 500000
+   :market-cap-above 500e6})
+
+(defn req-scanner-data
+  "Runs a one-shot market scan, merging scan-spec over default-scan. Returns a chan
+  that will be delivered a vec of results sorted by rank (see fn
+  abroker.ibkr.data/scan-result for data details) then closed. Spec keys are
+  documented on fn abroker.ibkr.data/scanner-subscription, plus :filters, a map of
+  ibkr generic filter tags (e.g. {:changePercAbove 3}) — req-scanner-parameters
+  lists everything available. If TWS rejects the scan (bad code etc) the error is
+  logged and the chan is closed without delivering (reads as nil). Still consume
+  with a timeout (e.g. abroker.ibkr.tools/req-single!) to cover silent hangs like
+  scans outside market hours."
+  [& {:as scan-spec}]
+  (if-let [conn (connected-client)]
+    (let [req-id (next-req-id)
+          out (chan 1)
+          spec (merge default-scan scan-spec)]
+      (swap! scan-by-req-id assoc req-id {:out out :results []})
+      (.reqScannerSubscription conn req-id
+                               (ibdata/scanner-subscription spec)
+                               nil
+                               (ibdata/tag-values (:filters spec)))
+      out)
+    (log/error "Not Connected")))
+
+(defn cancel-scanner-data
+  "Cancels a scan and closes its result chan without delivering. Only needed when a
+  scan hangs (e.g. outside market hours) since scans normally self-cancel on
+  completion."
+  ([]
+   (cancel-scanner-data (last-req-id)))
+  ([req-id]
+   (.cancelScannerSubscription (client) req-id)
+   (abort-scan! req-id)))
+
+(def scanner-params-ctx
+  (ctx/ctx-atom identity))
+
+(defmethod handle-event :scanner-parameters [{:keys [xml]}]
+  (when-let [ctx (ctx/mark-done! scanner-params-ctx)]
+    (go
+      (>! (ctx/out-chan ctx) xml)
+      (ctx/dispose! ctx))))
+
+(defn req-scanner-parameters
+  "Returns chan that will be delivered one giant XML string listing every scan code,
+  instrument, location code, and filter TWS supports. REPL tool for discovering
+  values to use in req-scanner-data."
+  []
+  (ctx-call! scanner-params-ctx (fn [_]
+                                  (.reqScannerParameters (client)))))
+
+(comment
+  (req-scanner-data) ; top % gainers with good defaults
+  (req-scanner-data :scan-code :most-active :above-volume 1000000)
+  (req-scanner-data :scan-code :hot-by-volume :filters {:changePercAbove 3})
+  (cancel-scanner-data)
+  (req-scanner-parameters))
 
 
 ;; ACCOUNT & POSITIONS
