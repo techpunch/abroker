@@ -145,6 +145,53 @@
 (def sec-type
   (set/map-invert instrument-type))
 
+;; SCREENER (IBKR calls it the market scanner)
+
+; These maps cover the codes we use; anything else can be passed through as a raw
+; string. TWS's scanner parameters XML is the authoritative list — see
+; abroker.ibkr.tools/scan-codes and friends to pull the current values out of it.
+
+; maps our instrument keyword to ibkr's ScannerSubscription instrument code
+(def scan-instrument
+  {:stock    "STK"
+   :stock-eu "STOCK.EU"
+   :stock-hk "STOCK.HK"
+   :stock-na "STOCK.NA"
+   :future   "FUT.US"
+   :index    "IND.US"
+   :bond     "BOND"})
+
+; maps our location keyword to ibkr's ScannerSubscription location code
+(def scan-location
+  {:us-major "STK.US.MAJOR" ; NYSE/NASDAQ/AMEX — no OTC or pink sheets
+   :us-minor "STK.US.MINOR"
+   :us       "STK.US"
+   :na       "STK.NA"
+   :eu       "STK.EU"
+   :hk       "STK.HK"})
+
+; maps our stock-type keyword to ibkr's stockTypeFilter value
+(def stock-type-filter
+  {:all  "ALL"
+   :corp "CORP" ; common shares
+   :adr  "ADR"
+   :etf  "ETF"})
+
+; maps abroker's canonical scan-code keyword (the ones abroker.screen's presets use) to
+; ibkr's scan code. Keywords missing here convert mechanically instead
+; (:top-perc-gain -> "TOP_PERC_GAIN"), so ibkr's own vocabulary works too.
+(def scan-code
+  {:top-gainers    "TOP_PERC_GAIN"
+   :top-losers     "TOP_PERC_LOSE"
+   :most-active    "MOST_ACTIVE_USD"
+   :unusual-volume "HOT_BY_VOLUME"
+   :gap-ups        "TOP_OPEN_PERC_GAIN"
+   :gap-downs      "TOP_OPEN_PERC_LOSE"
+   :near-52w-high  "HIGH_VS_52W_HL"
+   :near-52w-low   "LOW_VS_52W_HL"
+   :halted         "HALTED"})
+
+
 ; maps ibkr's option right to our subtype
 (def option-subtype
   {""  :none

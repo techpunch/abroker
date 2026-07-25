@@ -12,6 +12,36 @@
    {:account "A" :symbol "GOOGL" :type :stock :quantity 0.0M :avg-cost 2800.0}
    {:account "A" :symbol "MSFT" :type :stock :quantity 8M :avg-cost 380.0}])
 
+(def scanner-params-xml
+  "<ScanParameterResponse>
+     <Instrument><type>STK</type><filters>PRICE,VOLUME</filters></Instrument>
+     <LocationTree><Location><locationCode>STK.US.MAJOR</locationCode>
+       <Location><locationCode>STK.US.MAJOR.NASDAQ</locationCode></Location></Location>
+       <Location><locationCode>STK.US.MINOR</locationCode></Location></LocationTree>
+     <ScanTypeList>
+       <ScanType><displayName>Top % Gainers</displayName><scanCode>TOP_PERC_GAIN</scanCode></ScanType>
+       <ScanType><displayName>Most Active</displayName><scanCode>MOST_ACTIVE</scanCode></ScanType>
+       <ScanType><displayName>Top % Gainers</displayName><scanCode>TOP_PERC_GAIN</scanCode></ScanType>
+     </ScanTypeList>
+     <FilterList>
+       <RangeFilter><AbstractField><code>priceAbove</code></AbstractField>
+                    <AbstractField><code>priceBelow</code></AbstractField></RangeFilter>
+       <RangeFilter><AbstractField><code>changePercAbove</code></AbstractField></RangeFilter>
+     </FilterList>
+   </ScanParameterResponse>")
+
+(deftest scanner-params-extraction
+  (testing "scan codes, deduped and sorted"
+    (is (= ["MOST_ACTIVE" "TOP_PERC_GAIN"] (tools/scan-codes scanner-params-xml))))
+  (testing "location codes, including nested ones"
+    (is (= ["STK.US.MAJOR" "STK.US.MAJOR.NASDAQ" "STK.US.MINOR"]
+           (tools/location-codes scanner-params-xml))))
+  (testing "filter tag names"
+    (is (= ["changePercAbove" "priceAbove" "priceBelow"]
+           (tools/filter-codes scanner-params-xml))))
+  (testing "a tag that isn't there"
+    (is (= [] (tools/xml-tag-values scanner-params-xml "nope")))))
+
 (deftest long-short-test
   (testing "Position classification"
     (is (= :long (tools/long-short {:quantity 10.0M})))

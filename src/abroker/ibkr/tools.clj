@@ -62,6 +62,36 @@
                     (into {}))]))
        (into {})))
 
+;; SCREENER PARAMETER DISCOVERY
+;; TWS's scanner parameters document (see client/req-scanner-parameters) is several MB
+;; of XML whose codes we only ever need as flat lists, so we pick values out of it with
+;; a regex instead of paying to parse the whole tree. `spit` it to a file if you want
+;; to read the full thing.
+
+(defn xml-tag-values
+  "Distinct sorted text values of an xml tag, e.g. (xml-tag-values xml \"scanCode\")."
+  [xml tag]
+  (->> (re-seq (re-pattern (str "<" tag ">([^<]+)</" tag ">")) xml)
+       (into (sorted-set) (map second))
+       (vec)))
+
+(defn scan-codes
+  "Scan codes TWS accepts, e.g. \"TOP_PERC_GAIN\" — the :scan-code of a screen."
+  [scanner-params-xml]
+  (xml-tag-values scanner-params-xml "scanCode"))
+
+(defn location-codes
+  "Location codes TWS accepts, e.g. \"STK.US.MAJOR\" — a screen's :location."
+  [scanner-params-xml]
+  (xml-tag-values scanner-params-xml "locationCode"))
+
+(defn filter-codes
+  "Filter tag names TWS accepts, e.g. \"changePercAbove\" — keys of a screen's
+  :filters map."
+  [scanner-params-xml]
+  (xml-tag-values scanner-params-xml "code"))
+
+
 (defn req-single!
   "Convenience wrapper for calls to abroker.ibkr.client fns that return a chan that
   expect a single result. Returns a chan that will either get closed on timeout or
@@ -78,3 +108,12 @@
             (>! out positions))
           (close! out)))
       out)))
+
+
+(comment
+  ;; scanner parameter discovery, with abroker.ibkr.client loaded and connected
+  (def params (clojure.core.async/<!! (abroker.ibkr.client/req-scanner-parameters)))
+  (count (scan-codes params))
+  (filter #(re-find #"(?i)volume" %) (filter-codes params))
+  (spit "scanner-params.xml" params)
+  ,)

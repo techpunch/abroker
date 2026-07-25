@@ -12,6 +12,7 @@ Getting the project structured to move fast with Claude Code. Stabilizing the IB
 - [ ] Market data: stabilize real-time tick and bar streaming; auto-resume 5m bar streams after reconnect
 - [ ] Order lifecycle: reliable tracking of fill events through `handle-event`
 - [ ] Error handling: surface IBKR error codes more cleanly to callers
+- [ ] Screens: verify scan codes, filter tags and market-cap units against live TWS
 
 ## Mid Term
 
@@ -36,3 +37,5 @@ Getting the project structured to move fast with Claude Code. Stabilizing the IB
 - [x] Risk validation (`max-order-amt`)
 - [x] Canonical order status mapping (11+ IBKR states → 6 canonical)
 - [x] Position grouping/filtering by allocation, CSV export
+- [x] Market screens: broker-agnostic screen DSL with presets, IBKR scanner adapter
+      (one-shot + streaming), scanner parameter discovery

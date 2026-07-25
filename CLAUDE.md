@@ -37,6 +37,7 @@ Getting the project structured to move fast with Claude Code.
 - `async-ctx.clj` — Call context pattern: deduplicates concurrent in-flight requests to paced APIs
 - `risk.clj` — Order validation against configured `max-order-amt` limits
 - `price.clj` — Price formatting, Bar record, volume conversions
+- `screen.clj` — Market screens (broker screener/scanner): screen map, DSL, defaults, presets
 
 **IBKR adapter** (`src/abroker/ibkr/`):
 - `client.clj` — Connection management, reconnect with exponential backoff, order placement, event routing via `handle-event` multimethod
@@ -56,6 +57,8 @@ This keeps all TWS callback processing non-blocking. The socket reader, event wo
 **Call context** (`async-ctx`): If multiple callers request the same expensive/paced operation concurrently, they tap a single in-flight channel rather than each issuing a separate API call. Used for `reqPositions` which fires many callbacks before completing.
 
 **Reconnect**: Detects connection loss via IBKR error codes 1100/1102. Retries with exponential backoff (2s → 4s → 8s… capped at 60s). Disabled on explicit disconnect.
+
+**Screens**: `screen.clj` builds a broker-agnostic screen map; `ibkr/data.clj` converts it to a `ScannerSubscription` + filter `TagValue`s. `client/req-scan` runs it once and cancels the subscription itself; `req-scan-stream` stays live and the caller cancels. See `doc/data-model/ScreenModel.md`.
 
 **FA groups**: IBKR sends ghost zero-cost positions for recently-closed FA group trades; `tools.clj` filters these out. Allocation groups use `:alloc-group` + `:min-lot-size`; individual accounts use `:account`.
 

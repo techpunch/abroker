@@ -7,6 +7,7 @@
             [abroker.ibkr.ewrapper :as ewrapper]
             [abroker.price :as price]
             [abroker.risk :as risk]
+            [abroker.screen :as screen]
             [techpunch.java :as j]
             [techpunch.util :as u])
   (:import [com.ib.client EClientSocket EReader Bar]))
@@ -43,6 +44,8 @@
 
 (defonce ^:private error-chan-by-req-id (atom {}))
 
+(declare abort-scan! end-scans!)
+
 (defn- tap-errors [req-id]
   (let [c (chan 1)]
     ; TODO WIP - finish implementing & testing
@@ -67,6 +70,7 @@
       (#{1100 1102} error-code) nil
       :else (do
               (log/error req-id error-code error-msg advanced-order-reject-json)
+              (abort-scan! req-id error-code)
               (when-let [c (and req-id (@error-chan-by-req-id req-id))]
                 (put! c error-event))))))
 
@@ -88,6 +92,8 @@
 
 (defmethod handle-event :connection-closed [_]
   (log/info "IB connection closed")
+  ; subscriptions died with the socket, and req-ids don't survive a reconnect
+  (end-scans!)
   (when-let [reconnect (:reconnect-fn @connection)]
     (when (compare-and-set! reconnecting-fut nil :starting)
       (reset! reconnecting-fut
@@ -115,6 +121,20 @@
     (ctx/tap! ctx-atom on-new-ctx-f)
     (log/error "Not Connected")))
 
+(defn- timeout-ctx!
+  "Disposes a ctx-atom's in-flight call if it hasn't finished within timeout-ms. Without
+  this, a request TWS never answers leaves the ctx un-finished forever and every later
+  caller taps a chan that can't deliver. The identity check keeps a stale timer from
+  disposing a later call's ctx."
+  [ctx-atom timeout-ms label]
+  (let [src (ctx/out-chan @ctx-atom)]
+    (go
+      (<! (async/timeout timeout-ms))
+      (when (identical? src (ctx/out-chan @ctx-atom))
+        (when-let [ctx (ctx/mark-done! ctx-atom)]
+          (log/warn label "timed out after" timeout-ms "ms")
+          (ctx/dispose! ctx))))))
+
 
 (defn client []
   (:client @connection))
@@ -127,6 +147,7 @@
 (defn disconnect! [disable-reconnect?]
   ; disable reconnect since we're explicitly disconnecting
   (swap! connection dissoc :reconnect-fn)
+  (end-scans!) ; while still connected, so TWS gets the cancels
   (when-let [c (connected-client)]
     (.eDisconnect c))
   (when-let [c (:events-chan @connection)]
@@ -387,3 +408,153 @@
   []
   (ctx-call! position-ctx (fn [_]
                             (.reqPositions (client)))))
+
+
+;; SCREENER (IBKR calls it the market scanner)
+; IBKR PACING LIMITATIONS:
+; - at most 10 scanner subscriptions may be live at once
+; - a subscription streams until cancelled; req-scan cancels for you, req-scan-stream
+;   leaves that to the caller
+; - reqScannerParameters returns a multi-MB document; request it rarely
+
+(def scanner-params-ctx
+  (ctx/ctx-atom identity))
+
+(defmethod handle-event :scanner-parameters [{:keys [xml]}]
+  (when-let [ctx (ctx/mark-done! scanner-params-ctx)]
+    (go
+      (>! (ctx/out-chan ctx) xml)
+      (ctx/dispose! ctx))))
+
+(defn req-scanner-parameters
+  "Returns a chan the scanner parameters XML will be delivered to. That document is
+  TWS's authoritative list of valid scan codes, locations, instruments and filter tags;
+  see the scan-codes / location-codes / filter-codes fns in abroker.ibkr.tools for
+  pulling those lists out of it. The chan closes empty if TWS hasn't answered within
+  timeout-ms — this request is paced hard enough to be refused outright."
+  [& {:keys [timeout-ms] :or {timeout-ms 30000}}]
+  (when-let [tap (ctx-call! scanner-params-ctx (fn [_]
+                                                 (.reqScannerParameters (client))))]
+    (timeout-ctx! scanner-params-ctx timeout-ms "Scanner parameters request")
+    tap))
+
+
+(def max-scans 10)
+
+; live scans by req-id: {req-id {:screen _ :rows [] :out chan :stream? bool}}
+(defonce ^:private scans (atom {}))
+
+(defn live-scans
+  "The screens currently subscribed, by req-id."
+  []
+  (update-vals @scans :screen))
+
+(defn- end-scan!
+  "Cancels a scan's TWS subscription, closes its chan and forgets it. No-op if the scan
+  already ended."
+  [req-id]
+  (let [[live _] (swap-vals! scans dissoc req-id)]
+    (when-let [{:keys [out]} (live req-id)]
+      (close! out)
+      (when (connected-client)
+        (.cancelScannerSubscription (client) req-id)))))
+
+(defn- end-scans!
+  "Ends every live scan."
+  []
+  (run! end-scan! (keys @scans)))
+
+(defn- abort-scan!
+  "Ends a scan whose request TWS rejected so callers aren't left waiting on rows that
+  will never arrive. Codes 2100 and up are warnings rather than failures."
+  [req-id error-code]
+  (when (and req-id error-code (< error-code 2100) (@scans req-id))
+    (log/warn "Scan" req-id "cancelled after TWS error" error-code)
+    (end-scan! req-id)))
+
+;; Scanner events are dispatched serially by the single event worker, so accumulating
+;; rows and handing them off on scanner-data-end needs no further coordination.
+
+(defmethod handle-event :scanner-data [{:keys [req-id] :as event}]
+  (when (@scans req-id)
+    (swap! scans update-in [req-id :rows] conj (ibdata/scan-row event))))
+
+(defmethod handle-event :scanner-data-end [{:keys [req-id]}]
+  (when-let [{:keys [out rows stream?]} (@scans req-id)]
+    (log/trace "scanner-data-end row count" (count rows))
+    ; TWS sends rows in rank order, but ranking the snapshot ourselves makes
+    ; "best first" our guarantee rather than an assumption about TWS
+    (put! out (vec (sort-by :rank rows)))
+    (if stream?
+      (swap! scans assoc-in [req-id :rows] [])
+      (end-scan! req-id))))
+
+(defn- start-scan! [screen stream?]
+  (if-let [conn (connected-client)]
+    ; sliding buffer: a stream's consumer should get the newest snapshot and must never
+    ; block the event worker
+    (let [req-id (next-req-id)
+          out (chan (async/sliding-buffer 1))]
+      (when (<= max-scans (count @scans))
+        (log/warn "Already" max-scans "scans live; TWS may reject this one"))
+      (swap! scans assoc req-id {:screen screen :rows [] :out out :stream? stream?})
+      (.reqScannerSubscription conn req-id
+                               (ibdata/scanner-subscription screen)
+                               []
+                               (ibdata/scan-filters (:filters screen)))
+      {:req-id req-id :out out})
+    (log/error "Not Connected")))
+
+(defn req-scan
+  "Runs a screen (see abroker.screen) once and returns a chan delivering a single vec
+  of scan rows ranked best first, then closing. The subscription is cancelled as soon
+  as those rows arrive, or after timeout-ms — a timed out scan just closes its chan, so
+  the caller reads nil. Returns nil when not connected. Row details are in
+  abroker.ibkr.data/scan-row."
+  [screen & {:keys [timeout-ms] :or {timeout-ms 15000}}]
+  (when-let [{:keys [req-id out]} (start-scan! screen false)]
+    (go
+      (<! (async/timeout timeout-ms))
+      ; identity check, not just the id: req-ids restart on reconnect, so by now this
+      ; id could belong to somebody else's scan
+      (when (identical? out (:out (@scans req-id)))
+        (log/warn "Scan timed out after" timeout-ms "ms:" (:scan-code screen))
+        (end-scan! req-id)))
+    out))
+
+(defn req-scan-stream
+  "Subscribes to a screen and keeps it live — TWS resends the whole result set whenever
+  it changes. Returns {:req-id _ :out _}, where :out is a chan holding the latest
+  snapshot only, so a slow consumer skips stale ones. The caller must `cancel-scan` the
+  req-id when done; only max-scans subscriptions can be live. Returns nil when not
+  connected."
+  [screen]
+  (start-scan! screen true))
+
+(defn cancel-scan
+  "Cancels the scan for req-id, or with no args every live scan. (Unlike the other
+  cancel- fns here, no args means all rather than the last req-id — scans are tracked
+  individually, and a leaked subscription costs one of only max-scans slots.)"
+  ([]
+   (end-scans!))
+  ([req-id]
+   (end-scan! req-id)))
+
+(comment
+  (async/<!! (req-scan (screen/top-gainers)))
+
+  (async/<!! (req-scan (-> (screen/screen :most-active)
+                           (screen/price-above 20)
+                           (screen/rows 10))))
+
+  (let [{:keys [req-id out]} (req-scan-stream (screen/unusual-volume))]
+    (async/go-loop []
+      (when-let [rows (async/<! out)]
+        (log/info "scan update" (mapv :symbol rows))
+        (recur)))
+    (def stream-req-id req-id))
+  (cancel-scan stream-req-id)
+  (live-scans)
+
+  (async/<!! (req-scanner-parameters))
+  ,)
