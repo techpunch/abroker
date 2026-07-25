@@ -39,10 +39,10 @@ Getting the project structured to move fast with Claude Code.
 - `price.clj` — Price formatting, Bar record, volume conversions
 
 **IBKR adapter** (`src/abroker/ibkr/`):
-- `client.clj` — Connection management, reconnect with exponential backoff, order placement, event routing via `handle-event` multimethod
+- `client.clj` — Connection management, reconnect with exponential backoff, order placement, market scanner (`req-scan`), event routing via `handle-event` multimethod
 - `ewrapper.clj` — Implements IBKR's `EWrapper` Java interface; routes all TWS callbacks into a core.async channel to avoid blocking
 - `data.clj` — Converts between abroker's data model and IBKR's Java objects (`Contract`, `Order`, IBKR's custom `Decimal` type)
-- `codes.clj` — IBKR enumerations and constants (order types, tick field codes, bar sizes)
+- `codes.clj` — IBKR enumerations and constants (order types, tick field codes, bar sizes, scan/location codes)
 - `tools.clj` — Higher-level utilities: position grouping/filtering by allocation, CSV export, timeout-aware async request wrappers
 
 ### Event Flow

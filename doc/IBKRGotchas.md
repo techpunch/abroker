@@ -42,6 +42,29 @@ Code 1100 = connection lost, 1102 = connection restored. These are informational
 
 Codes 2103–2108, 2119, 2157, 2158 are "chatty" market data farm connection notices. Also suppressed by default.
 
+More generally, IBKR reserves 2100–2200 for warnings — delayed data notices and similar — and they arrive through the same `error` callback as outright rejections. Anything tearing a request down in response to an error should check `warning-code?` first, or a "displaying delayed market data" notice will kill a request that was working fine.
+
+
+## Scanner `aboveVolume` is today's volume, not average volume
+
+`ScannerSubscription.aboveVolume` filters on volume traded so far in the current session. Using it as a liquidity floor means a scan returns nothing in the first minutes of the day, and progressively more as the session goes on — the same screen gives different answers at 9:32 and 15:32 for reasons that have nothing to do with the market.
+
+For an actual liquidity floor use the `avgVolumeAbove` scanner filter tag (`:filters {"avgVolumeAbove" 500000}` in `req-scan`). This is why `default-scan` has a price floor but no volume floor.
+
+
+## Scanner subscriptions stream until canceled
+
+`reqScannerSubscription` is not a request/response. TWS sends a `scannerData` callback per row, then `scannerDataEnd`, then keeps pushing re-ranked snapshots indefinitely. TWS also allows only a small number of scanner subscriptions at once, so an uncanceled scan is a leaked slot.
+
+`req-scan` in `client.clj` treats a scan as one-shot: it takes the first snapshot, delivers it, and cancels. It also tears the scan down on error or after `scan-timeout-ms`, since a scan that never ends would otherwise hold its slot forever.
+
+
+## scannerParameters has no req-id
+
+The `scannerParameters` callback carries only the XML — no request id — so there's no way to tell two concurrent requests apart. `req-scanner-params` allows a single request in flight and hands a superseded caller a closed chan rather than someone else's answer.
+
+The XML is several MB and is the only authoritative list of scan codes, locations, and filter tags for a given account. The friendly aliases in `codes.clj` are a curated subset, not the whole vocabulary.
+
 
 ## OCA groups cannot do partial-fill reduce-others
 

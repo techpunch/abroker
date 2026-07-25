@@ -36,3 +36,4 @@ Getting the project structured to move fast with Claude Code. Stabilizing the IB
 - [x] Risk validation (`max-order-amt`)
 - [x] Canonical order status mapping (11+ IBKR states → 6 canonical)
 - [x] Position grouping/filtering by allocation, CSV export
+- [x] Market scanner (screener): one-shot `req-scan` with tradeable defaults, friendly scan/location codes, results usable as instruments

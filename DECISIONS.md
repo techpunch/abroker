@@ -3,6 +3,27 @@
 Architectural and design decisions, with rationale.
 
 
+## Market scanner is one-shot, with no call-context dedupe [2026-07]
+
+Decision: `req-scan` takes the first snapshot of a scanner subscription, delivers it, and cancels. Unlike `req-positions` it does not use `async-ctx` to deduplicate concurrent callers.
+
+Why: `reqPositions` needs the call context because `positionEnd` carries no request id — there is no way to tell concurrent requests apart. Scanner callbacks do carry a req-id, so correlation is free and dedupe would only add state. Two callers running two different screens at once is the normal case, not a collision to collapse. Leaving the subscription open would also burn one of the few scanner slots TWS allows and keep re-ranking results underneath the caller.
+
+
+## Scan defaults filter on price, never on volume [2026-07]
+
+Decision: `default-scan` screens major-exchange US stocks above $5 for the day's top percent gainers, 25 rows, with no volume floor.
+
+Why: a screener without a floor mostly returns sub-$1 names nobody can trade, so a price floor earns its place as a default. A volume floor does not: IBKR's `aboveVolume` is session volume, so it hides the whole market at the open (see IBKRGotchas). Average volume is only reachable through account-specific filter tags, which don't belong in a default that has to work for every account. Any default is one `{:above-price nil}` away from being cleared.
+
+
+## Unknown scan opt keys throw [2026-07]
+
+Decision: `scanner-subscription` rejects opts keys it doesn't recognize instead of ignoring them, and unknown scan code / location keywords throw rather than being passed to TWS.
+
+Why: a filter that silently doesn't apply is the worst failure mode for a screener — the results look plausible and are wrong. `:above-vol` instead of `:above-volume` should be an error at the call site, not a screen full of illiquid names.
+
+
 ## FA group ghost position filtering [2026-03]
 
 Decision: `tools.clj` filters out zero-average-cost positions created by FA group trades for recently-closed positions.

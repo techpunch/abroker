@@ -1,11 +1,12 @@
 (ns abroker.ibkr.data
-  (:import [com.ib.client Contract Order Decimal]
+  (:import [com.ib.client Contract ContractDetails Order Decimal ScannerSubscription TagValue]
            [java.time Instant LocalDate ZonedDateTime])
   (:require [clojure.string :as str]
             [clojure.tools.logging :as log]
             [java-time.api :as jt]
             [abroker.data :as data]
-            [abroker.ibkr.codes :as codes]))
+            [abroker.ibkr.codes :as codes]
+            [techpunch.util :as u]))
 
 
 ; Conversions to/from IB's custom Decimal class
@@ -194,3 +195,102 @@
              :avg-cost (data/round-price avg-cost)}
       (= :option type) (assoc :subtype
                               (codes/option-subtype (.getRight contract))))))
+
+
+;; Market Scanner (aka Screener)
+
+(def default-scan
+  "Aimed at what's actually tradeable: the day's biggest percent gainers among stocks on
+  the major US exchanges, above the price where penny stock noise lives. 25 rows because
+  a screen you can't read in one glance isn't a screen (IBKR caps a scan at 50 anyway).
+  See fn scanner-subscription for why there's deliberately no volume floor."
+  {:instrument  :stock
+   :location    :us-major
+   :scan-code   :top-gainers
+   :rows        25
+   :above-price 5.0})
+
+(def scan-opt-keys
+  "Every key fn scanner-subscription understands. Anything else is rejected rather than
+  ignored — a filter that silently doesn't apply is the worst way to learn about a typo."
+  #{:instrument :location :scan-code :rows :stock-type-filter
+    :above-price :below-price :above-volume :market-cap-above :market-cap-below
+    :avg-option-volume-above :exclude-convertible? :filters})
+
+(defn- scan-str
+  "Resolves x to the IBKR string for scan field `what`: raw strings pass through, known
+  keywords resolve via aliases, and anything else throws here rather than coming back
+  from TWS later as a generic rejection."
+  [what aliases x]
+  (cond
+    (string? x)  x
+    (aliases x)  (aliases x)
+    :else (u/throw-illegal-arg (str "Unknown scanner " what ":") x
+                               "- known aliases:" (vec (sort (keys aliases))))))
+
+(defn scanner-subscription
+  "Builds an IBKR ScannerSubscription from opts merged over `default-scan`. :instrument,
+  :location and :scan-code take a friendly keyword (see abroker.ibkr.codes) or a raw IBKR
+  string; :stock-type-filter takes :all, :stock or :etf; the rest are numbers. An explicit
+  nil clears a default, so {:above-price nil} scans with no price floor at all.
+
+  Careful with :above-volume — it's *today's* volume, not average volume, so as a
+  liquidity floor it hides the entire market for the first minutes of the session. Use
+  {:filters {\"avgVolumeAbove\" 500000}} instead (see fn scan-filters)."
+  [opts]
+  (when-let [unknown (seq (remove scan-opt-keys (keys opts)))]
+    (u/throw-illegal-arg "Unknown scanner opts:" (vec unknown)))
+  (let [{:keys [instrument location scan-code rows stock-type-filter
+                above-price below-price above-volume market-cap-above market-cap-below
+                avg-option-volume-above exclude-convertible?]}
+        (merge default-scan opts)
+        s (doto (ScannerSubscription.)
+            (.instrument (scan-str "instrument" codes/scan-instruments instrument))
+            (.locationCode (scan-str "location" codes/scan-locations location))
+            (.scanCode (scan-str "scan-code" codes/scan-codes scan-code)))]
+    ; an unset numeric field holds a MAX_VALUE sentinel that TWS reads as "no filter",
+    ; so only touch the fields we were actually given
+    (when rows (.numberOfRows s (int rows)))
+    (when stock-type-filter (.stockTypeFilter s (api-str stock-type-filter)))
+    (when above-price (.abovePrice s (double above-price)))
+    (when below-price (.belowPrice s (double below-price)))
+    (when above-volume (.aboveVolume s (int above-volume)))
+    (when market-cap-above (.marketCapAbove s (double market-cap-above)))
+    (when market-cap-below (.marketCapBelow s (double market-cap-below)))
+    (when avg-option-volume-above (.averageOptionVolumeAbove s (int avg-option-volume-above)))
+    (when (some? exclude-convertible?) (.excludeConvertible s exclude-convertible?))
+    s))
+
+(defn scan-filters
+  "Builds the TagValue list for a scan's :filters map, e.g.
+  {\"avgVolumeAbove\" 500000 \"changePercAbove\" 3}. These are the filters TWS's screener
+  UI shows beyond the handful ScannerSubscription models directly; tag names are
+  account-specific and listed in the XML from client/req-scanner-params. Tags and values
+  are stringified. Returns nil when there are no filters, which is what TWS wants."
+  [filters]
+  (when (seq filters)
+    (mapv (fn [[tag value]] (TagValue. (name tag) (str value))) filters)))
+
+(defn scan-result
+  "Converts a raw :scanner-data event into a result map. :type/:symbol/:currency make it
+  a usable instrument, so a result can go straight into req-mkt-data or send-order!.
+  Deliberately reports the listing venue as :primary-exchange, not :exchange — :exchange
+  on an instrument is the route an order takes, and pinning that to the listing venue
+  would quietly bypass SMART routing. Empty strings from IBKR become nil, and fields only
+  some scan codes populate (:distance, :benchmark, :projection, :legs) are dropped when
+  they're empty."
+  [{:keys [rank distance benchmark projection legs-str] :as event}]
+  (let [^ContractDetails details (:contract-details event)
+        c (.contract details)]
+    (into {:rank             rank
+           :symbol           (.symbol c)
+           :type             (codes/instrument-type (.getSecType c))
+           :currency         (.currency c)
+           :con-id           (.conid c)
+           :primary-exchange (not-empty (.primaryExch c))
+           :name             (not-empty (.longName details))
+           :industry         (not-empty (.industry details))
+           :category         (not-empty (.category details))}
+          (remove (comp str/blank? val))
+          {:distance distance :benchmark benchmark
+           :projection projection :legs legs-str})))

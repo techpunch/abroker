@@ -154,3 +154,43 @@
 ; maps our option subtype to an ibkr right
 (def option-right
   (set/map-invert option-subtype))
+
+
+;; MARKET SCANNER (aka Screener)
+;; These are convenience aliases for the codes worth remembering, not the whole set —
+;; IBKR has hundreds and which ones work depends on the account's market data
+;; subscriptions. Everywhere an alias is accepted a raw IBKR string is too, and
+;; client/req-scanner-params dumps the full list your account can actually use.
+
+; the "instrument" a scan runs over; not the same vocabulary as sec-type above
+(def scan-instruments
+  {:stock  "STK"
+   :option "OPT.US"
+   :future "FUT.US"
+   :index  "IND.US"})
+
+; where to scan. :us-major is the big three listing venues, which is what you want
+; almost always — :us adds OTC/pink sheet names most traders can't or shouldn't touch
+(def scan-locations
+  {:us-major "STK.US.MAJOR"
+   :us-minor "STK.US.MINOR"
+   :us       "STK.US"
+   :nyse     "STK.NYSE"
+   :nasdaq   "STK.NASDAQ"
+   :amex     "STK.AMEX"})
+
+; https://www.interactivebrokers.com/campus/ibkr-api-page/twsapi-doc/#scanner-code
+(def scan-codes
+  {:top-gainers       "TOP_PERC_GAIN"      ; % change since previous close
+   :top-losers        "TOP_PERC_LOSE"
+   :top-open-gainers  "TOP_OPEN_PERC_GAIN" ; % change since today's open
+   :top-open-losers   "TOP_OPEN_PERC_LOSE"
+   :most-active       "MOST_ACTIVE"        ; by share volume
+   :most-active-usd   "MOST_ACTIVE_USD"    ; by dollar volume - better liquidity proxy
+   :hot-by-volume     "HOT_BY_VOLUME"      ; volume vs. its own average, i.e. unusual
+   :hot-by-price      "HOT_BY_PRICE"
+   :near-52w-high     "HIGH_VS_52W_HIGH"
+   :near-52w-low      "LOW_VS_52W_LOW"
+   :halted            "HALTED"
+   :high-opt-imp-vol  "HIGH_OPT_IMP_VOLAT"
+   :most-active-opt   "OPT_VOLUME_MOST_ACTIVE"})
