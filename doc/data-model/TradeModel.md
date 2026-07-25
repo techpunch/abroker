@@ -64,7 +64,7 @@ A Trade is the user-level concept: a position in an instrument with entry, risk 
 2. `submitting` -> `open` (entry order fills or partially fills) | `failed` (entry rejected or canceled)
 3. `open` -> `modifying` (user adjusts stops, trims, or adds to position) | `closing` (stop/trim hit, or user initiates close)
 4. `modifying` -> `open` (modification confirmed) | `closing` (stop hit during modification)
-5. `closing` -> `closed` (all exit orders filled, position flat)
+5. `closing` -> `closed` (all exit orders filled, position flat) | `open` (all exit orders canceled — position still held, exits must be re-placed)
 
 
 ## Trade Commands
@@ -95,7 +95,7 @@ Trade-level commands that drive state transitions. These reference but are disti
 | `:entry-fill`       | `:broker` | Entry order filled (partial or complete)     | `{:fill <fill>}`                                 |
 | `:entry-rejected`   | `:broker` | Entry order rejected                         | `{:reason <string>}`                             |
 | `:exit-fill`        | `:broker` | Stop or trim filled (partial or complete)    | `{:fill <fill>}`                                 |
-| `:exit-canceled`    | `:broker` | Exit order canceled by broker                | `{:order-uuid <uuid>}`                           |
+| `:exit-canceled`    | `:broker` | Exit order canceled by broker; if no exits remain, position is still held | `{:order-uuid <uuid>}` |
 
 ### How Commands Map to State Transitions
 
@@ -111,6 +111,7 @@ Trade-level commands that drive state transitions. These reference but are disti
 | `:close-trade`       | `:user`   | `open`             | `closing`    |
 | `:emergency-close`   | `:user`   | `open`/`modifying` | `closing`    |
 | `:exit-fill` (final) | `:broker` | `closing`          | `closed`     |
+| `:exit-canceled`     | `:broker` | `closing`          | `open` (no exits remain) or stays `closing` (other exits still active) |
 
 
 ## Trade Modifiers (Future)

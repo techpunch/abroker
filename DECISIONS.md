@@ -3,6 +3,13 @@
 Architectural and design decisions, with rationale.
 
 
+## Position tracking: event-sourced with broker as source of truth [2026-03]
+
+Decision: Position state is driven by events, same as orders. Position events come from two sources: fills (real-time, precise, traceable to an order) and sync polling (periodic, observational, catches everything else). Events are persisted in an append-only log; a snapshot is maintained as a materialized cache. Ghost positions (qty=0 or avg-cost<=0) are filtered before event generation. Sync serves as reconciliation — if fills say 200 shares but broker says 175, the sync event corrects local state.
+
+Why: Uniform event-sourced model for all state changes. Commands (user intent) are recorded separately and don't directly mutate state — only events do. See `doc/design/EventSourcingVsBrokerTruth.md` for the full design rationale.
+
+
 ## FA group ghost position filtering [2026-03]
 
 Decision: `tools.clj` filters out zero-average-cost positions created by FA group trades for recently-closed positions.

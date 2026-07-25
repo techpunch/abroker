@@ -180,6 +180,36 @@
     (when trigger-method (.triggerMethod o (trigger-methods trigger-method)))
     o))
 
+;; ── IBKR Order Status Mapping ──────────────────────────────────────
+
+(def ibkr-status-map
+  "Maps IBKR status strings to canonical order states. From OrderModel.md."
+  {"PendingSubmit" :pending
+   "PreSubmitted"  :accepted
+   "Submitted"     :active
+   "Filled"        :filled
+   "PendingCancel" :pending-cancel
+   "Cancelled"     :canceled
+   "ApiCancelled"  :canceled
+   "Inactive"      :rejected})
+
+(defn ibkr-status
+  "Translates an IBKR status string to a canonical order status keyword."
+  [status-str]
+  (get ibkr-status-map status-str :unknown))
+
+
+(defn execution->fill
+  "Converts an IBKR Execution Java object to a fill map."
+  [^com.ib.client.Execution execution order-uuid]
+  {:order-uuid     order-uuid
+   :quantity       (as-long (.shares execution))
+   :price          (.price execution)
+   :commission     nil  ; commission comes separately via commissionAndFeesReport
+   :broker-exec-id (.execId execution)
+   :timestamp      (java.time.Instant/now)})
+
+
 (defn position
   "Creates a position object from a raw IBKR response event. Returns a map with:
   {:account _ :type _ :symbol _ :quantity _ :avg-cost _}. Type :option will also have

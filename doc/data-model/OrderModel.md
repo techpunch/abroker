@@ -110,7 +110,7 @@ Broker-agnostic order lifecycle. Each broker's native statuses map into these st
                     └────────────────┘
 
   Any non-terminal state ──> pending-cancel ──> canceled | active | partially-filled | filled
-  Any non-terminal state ──> pending-modify ──> active | partially-filled | filled
+  Any non-terminal state ──> pending-modify ──> active | partially-filled | filled | canceled
   Any non-terminal state ──> unknown
 ```
 
@@ -118,9 +118,9 @@ Broker-agnostic order lifecycle. Each broker's native statuses map into these st
 1. `pending` -> `accepted` | `active` | `rejected` | `filled` (market orders can fill immediately)
 2. `accepted` -> `active` | `canceled` | `rejected` | `filled`
 3. `active` -> `partially-filled` | `filled` | `pending-cancel` | `pending-modify` | `canceled`
-4. `partially-filled` -> `filled` | `pending-cancel` | `canceled`
+4. `partially-filled` -> `filled` | `pending-cancel` | `pending-modify` | `canceled`
 5. `pending-cancel` -> `canceled` | `filled` | `active` | `partially-filled`
-6. `pending-modify` -> `active` | `filled` | `partially-filled`
+6. `pending-modify` -> `active` | `filled` | `partially-filled` | `canceled`
 7. `unknown` -> any state (once broker reports a recognized status)
 
 ### Broker Status Mapping
@@ -142,43 +142,45 @@ Broker-agnostic order lifecycle. Each broker's native statuses map into these st
 ---
 
 
-## Command Layer
+## Event Log
 
-Every state change to an order is recorded as a command. Both user-initiated actions and broker-originated notifications use the same structure. This gives a complete, replayable audit trail.
+Every state change to an order is recorded as an event. Both user-initiated actions and broker-originated notifications use the same structure. This gives a complete, replayable audit trail.
 
-### Command Structure
+User-originated events produce pending intermediate states (`:pending`, `:pending-cancel`, `:pending-modify`) — the act of sending a request to the broker is itself a fact. Broker-originated events produce outcome states (`:accepted`, `:active`, `:filled`, `:canceled`, `:rejected`) or resolve pending states.
+
+### Event Structure
 
 ```clojure
-{:uuid       <uuid>             ; unique command id
+{:uuid       <uuid>             ; unique event id
  :order-uuid <uuid>             ; the order this applies to
- :type       <command-type>     ; see table below
+ :type       <event-type>       ; see table below
  :origin     :user | :broker    ; who initiated this
- :payload    <map>              ; command-specific data
+ :payload    <map>              ; event-specific data
  :timestamp  <instant>}
 ```
 
-### Command Types
+### Event Types
 
 | Type                | Origin    | Description                                  | Payload                                          |
 | ------------------- | --------- | -------------------------------------------- | ------------------------------------------------ |
-| `:submit-order`     | `:user`   | Submit order to broker                       | `{}`                                             |
-| `:cancel-order`     | `:user`   | Request cancellation                         | `{}`                                             |
-| `:modify-order`     | `:user`   | Change price/qty on an existing order        | `{:changes {...}}`                               |
-| `:order-accepted`   | `:broker` | Broker acknowledged the order                | `{:broker-id <any>}`                             |
-| `:order-active`     | `:broker` | Order is live on exchange                    | `{}`                                             |
-| `:partial-fill`     | `:broker` | Partial execution received                   | `{:fill <fill>}`                                 |
-| `:fill`             | `:broker` | Order completely filled                      | `{:fill <fill>}`                                 |
-| `:order-rejected`   | `:broker` | Broker rejected the order                    | `{:reason <string>}`                             |
-| `:order-canceled`   | `:broker` | Broker confirmed cancellation                | `{}`                                             |
+| `:submit-order`     | `:user`   | Submit order to broker → `:pending`          | `{}`                                             |
+| `:cancel-order`     | `:user`   | Cancel request sent → `:pending-cancel`      | `{}`                                             |
+| `:modify-order`     | `:user`   | Modify request sent → `:pending-modify`      | `{:changes {...}}`                               |
+| `:order-accepted`   | `:broker` | Broker acknowledged the order → `:accepted`  | `{:broker-id <any>}`                             |
+| `:order-active`     | `:broker` | Order is live on exchange → `:active`        | `{}`                                             |
+| `:partial-fill`     | `:broker` | Partial execution received → `:partially-filled` | `{:fill <fill>}`                             |
+| `:fill`             | `:broker` | Order completely filled → `:filled`          | `{:fill <fill>}`                                 |
+| `:order-rejected`   | `:broker` | Broker rejected the order → `:rejected`      | `{:reason <string>}`                             |
+| `:order-canceled`   | `:broker` | Broker confirmed cancellation → `:canceled`  | `{}`                                             |
 | `:status-change`    | `:broker` | Catch-all for other broker status updates    | `{:from <status>, :to <status>}`                 |
 
-### How Commands Drive State
+### How Events Drive State
 
-Commands are the **only** way order state changes. Processing a command:
+Events are the only way order state changes. Processing an event:
 
-1. Validates the command against current state (e.g. can't cancel an already-filled order)
+1. Validates the transition against current state (e.g. can't cancel an already-filled order)
 2. Applies the state transition
-3. Appends the command to the order's history
+3. Appends the event to the order's history
 4. Persists the updated order
 
-The order map is the **current snapshot** and the history is the **complete log**.
+The order map is the **current snapshot** and the event history is the **complete log**.
